@@ -1,8 +1,6 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local localPlayer = Players.LocalPlayer
 if not localPlayer then
@@ -30,8 +28,8 @@ local function bootstrap()
 	end
 
 	local isTouchDevice = UserInputService.TouchEnabled
-	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	local attackRemote = remotes and remotes:FindFirstChild("RequestAttack")
+	local playerModule = nil
+	local playerControls = nil
 	local flySpeed = 64
 	local flySmoothing = 0.18
 	local altitudeAdjustSpeed = 42
@@ -46,7 +44,6 @@ local function bootstrap()
 	local connections = {}
 	local destroyed = false
 	local savedCoordinates = {}
-	local espEntries = {}
 	local movementState = {
 		forward = 0,
 		backward = 0,
@@ -61,16 +58,8 @@ local function bootstrap()
 		targetHeight = nil,
 		lockHeightEnabled = false,
 		diveBelowEnabled = false,
-		lockHeightOffset = defaultLockHeightOffset,
-	}
-	local utilityState = {
 		noclipEnabled = false,
-		espEnabled = false,
-		autoCollectEnabled = false,
-		autoFarmEnabled = false,
-		autoKillEnabled = false,
-		lastCollectAt = 0,
-		lastAttackAt = 0,
+		lockHeightOffset = defaultLockHeightOffset,
 	}
 
 	local flyKeys = {
@@ -116,6 +105,31 @@ local function bootstrap()
 		end
 
 		return parts
+	end
+
+	local function getPlayerMoveVector()
+		if not playerControls then
+			local playerScripts = localPlayer:FindFirstChildOfClass("PlayerScripts")
+			local playerModuleScript = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+			if playerModuleScript then
+				local ok, module = pcall(require, playerModuleScript)
+				if ok and module and module.GetControls then
+					playerModule = module
+					playerControls = module:GetControls()
+				end
+			end
+		end
+
+		if playerControls and playerControls.GetMoveVector then
+			local ok, moveVector = pcall(function()
+				return playerControls:GetMoveVector()
+			end)
+			if ok and typeof(moveVector) == "Vector3" then
+				return moveVector
+			end
+		end
+
+		return Vector3.zero
 	end
 
 	local function sanitizeNumber(text)
@@ -345,9 +359,27 @@ local function bootstrap()
 	flyButton.Font = Enum.Font.GothamBold
 	flyButton.Parent = flySection
 
+	local noclipLabel = Instance.new("TextLabel")
+	noclipLabel.Size = UDim2.new(0, 100, 0, 18)
+	noclipLabel.Position = UDim2.fromOffset(12, 52)
+	noclipLabel.BackgroundTransparency = 1
+	noclipLabel.Text = "Noclip"
+	noclipLabel.TextXAlignment = Enum.TextXAlignment.Left
+	noclipLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	noclipLabel.TextSize = 13
+	noclipLabel.Font = Enum.Font.GothamMedium
+	noclipLabel.Parent = flySection
+
+	local noclipButton = createActionButton("NoclipToggle", "OFF", Color3.fromRGB(120, 52, 52))
+	noclipButton.Size = UDim2.fromOffset(82, 28)
+	noclipButton.Position = UDim2.new(1, -94, 0, 48)
+	noclipButton.TextSize = 13
+	noclipButton.Font = Enum.Font.GothamBold
+	noclipButton.Parent = flySection
+
 	local lockHeightLabel = Instance.new("TextLabel")
 	lockHeightLabel.Size = UDim2.new(0, 100, 0, 18)
-	lockHeightLabel.Position = UDim2.fromOffset(12, 52)
+	lockHeightLabel.Position = UDim2.fromOffset(12, 86)
 	lockHeightLabel.BackgroundTransparency = 1
 	lockHeightLabel.Text = "Lock Height"
 	lockHeightLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -358,21 +390,21 @@ local function bootstrap()
 
 	local lockHeightBox = createInputBox("LockHeightBox", "25")
 	lockHeightBox.Size = UDim2.fromOffset(70, 28)
-	lockHeightBox.Position = UDim2.fromOffset(114, 48)
+	lockHeightBox.Position = UDim2.fromOffset(114, 82)
 	lockHeightBox.Text = tostring(defaultLockHeightOffset)
 	lockHeightBox.TextSize = 13
 	lockHeightBox.Parent = flySection
 
 	local lockHeightButton = createActionButton("LockHeightToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	lockHeightButton.Size = UDim2.fromOffset(82, 28)
-	lockHeightButton.Position = UDim2.new(1, -94, 0, 48)
+	lockHeightButton.Position = UDim2.new(1, -94, 0, 82)
 	lockHeightButton.TextSize = 13
 	lockHeightButton.Font = Enum.Font.GothamBold
 	lockHeightButton.Parent = flySection
 
 	local diveBelowLabel = Instance.new("TextLabel")
 	diveBelowLabel.Size = UDim2.new(0, 100, 0, 18)
-	diveBelowLabel.Position = UDim2.fromOffset(12, 86)
+	diveBelowLabel.Position = UDim2.fromOffset(12, 120)
 	diveBelowLabel.BackgroundTransparency = 1
 	diveBelowLabel.Text = "Dive Below"
 	diveBelowLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -383,7 +415,7 @@ local function bootstrap()
 
 	local diveBelowButton = createActionButton("DiveBelowToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	diveBelowButton.Size = UDim2.fromOffset(82, 28)
-	diveBelowButton.Position = UDim2.new(1, -94, 0, 82)
+	diveBelowButton.Position = UDim2.new(1, -94, 0, 116)
 	diveBelowButton.TextSize = 13
 	diveBelowButton.Font = Enum.Font.GothamBold
 	diveBelowButton.Parent = flySection
@@ -492,61 +524,8 @@ local function bootstrap()
 	savedList.SortOrder = Enum.SortOrder.LayoutOrder
 	savedList.Parent = savedContainer
 
-	local utilitySection = createSection(124)
-	utilitySection.LayoutOrder = 4
-	utilitySection.Parent = content
-
-	local utilityLabel = Instance.new("TextLabel")
-	utilityLabel.Size = UDim2.new(1, -24, 0, 18)
-	utilityLabel.Position = UDim2.fromOffset(12, 10)
-	utilityLabel.BackgroundTransparency = 1
-	utilityLabel.Text = "Utility"
-	utilityLabel.TextXAlignment = Enum.TextXAlignment.Left
-	utilityLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
-	utilityLabel.TextSize = 15
-	utilityLabel.Font = Enum.Font.GothamSemibold
-	utilityLabel.Parent = utilitySection
-
-	local utilityRow = Instance.new("Frame")
-	utilityRow.Size = UDim2.new(1, -24, 0, 90)
-	utilityRow.Position = UDim2.fromOffset(12, 28)
-	utilityRow.BackgroundTransparency = 1
-	utilityRow.Parent = utilitySection
-
-	local utilityGrid = Instance.new("UIGridLayout")
-	utilityGrid.CellSize = UDim2.new(0.5, -4, 0, 24)
-	utilityGrid.CellPadding = UDim2.new(0, 8, 0, 8)
-	utilityGrid.FillDirectionMaxCells = 2
-	utilityGrid.Parent = utilityRow
-
-	local noclipButton = createActionButton("NoclipToggle", "OFF", Color3.fromRGB(120, 52, 52))
-	noclipButton.Parent = utilityRow
-
-	local espButton = createActionButton("EspToggle", "OFF", Color3.fromRGB(120, 52, 52))
-	espButton.Parent = utilityRow
-
-	local autoCollectButton = createActionButton("AutoCollectToggle", "OFF", Color3.fromRGB(120, 52, 52))
-	autoCollectButton.Parent = utilityRow
-
-	local autoFarmButton = createActionButton("AutoFarmToggle", "OFF", Color3.fromRGB(120, 52, 52))
-	autoFarmButton.Parent = utilityRow
-
-	local autoKillButton = createActionButton("AutoKillToggle", "OFF", Color3.fromRGB(120, 52, 52))
-	autoKillButton.Parent = utilityRow
-
-	local utilityHint = Instance.new("TextLabel")
-	utilityHint.Size = UDim2.new(1, -24, 0, 16)
-	utilityHint.Position = UDim2.fromOffset(12, 104)
-	utilityHint.BackgroundTransparency = 1
-	utilityHint.Text = "ESP menandai humanoid dan prompt collectible."
-	utilityHint.TextXAlignment = Enum.TextXAlignment.Left
-	utilityHint.TextColor3 = Color3.fromRGB(172, 182, 196)
-	utilityHint.TextSize = 11
-	utilityHint.Font = Enum.Font.Gotham
-	utilityHint.Parent = utilitySection
-
 	local executeSection = createSection(96)
-	executeSection.LayoutOrder = 5
+	executeSection.LayoutOrder = 4
 	executeSection.Parent = content
 
 	local executeLabel = Instance.new("TextLabel")
@@ -583,7 +562,7 @@ local function bootstrap()
 	local touchControls = Instance.new("Frame")
 	touchControls.Name = "TouchControls"
 	touchControls.Size = UDim2.fromOffset(58, 174)
-	touchControls.Position = UDim2.new(1, -138, 1, -250)
+	touchControls.Position = UDim2.new(1, -138, 0.5, -160)
 	touchControls.BackgroundTransparency = 1
 	touchControls.Visible = false
 	touchControls.Parent = screenGui
@@ -640,12 +619,8 @@ local function bootstrap()
 		touchDive.BackgroundColor3 = flyState.diveBelowEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(18, 24, 34)
 	end
 
-	local function updateUtilityButtons()
-		setButtonState(noclipButton, utilityState.noclipEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
-		setButtonState(espButton, utilityState.espEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
-		setButtonState(autoCollectButton, utilityState.autoCollectEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
-		setButtonState(autoFarmButton, utilityState.autoFarmEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
-		setButtonState(autoKillButton, utilityState.autoKillEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
+	local function updateNoclipButton()
+		setButtonState(noclipButton, flyState.noclipEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
 	end
 
 	local function setStatus(text, isError)
@@ -687,7 +662,7 @@ local function bootstrap()
 		panel.Size = UDim2.fromOffset(targetWidth, safeHeight)
 		panel.Position = clampToViewport(panel.Position, panel.Size, viewport)
 		toggleButton.Position = clampToViewport(toggleButton.Position, toggleButton.Size, viewport)
-		touchControls.Position = compact and UDim2.new(1, -138, 1, -250) or UDim2.new(1, -144, 1, -256)
+		touchControls.Position = compact and UDim2.new(1, -138, 0.5, -160) or UDim2.new(1, -144, 0.5, -168)
 	end
 
 	local function getActiveLockHeightOffset()
@@ -728,162 +703,8 @@ local function bootstrap()
 		updateDiveBelowButton()
 	end
 
-	local function clearEsp()
-		for instance, gui in pairs(espEntries) do
-			if gui then
-				gui:Destroy()
-			end
-			espEntries[instance] = nil
-		end
-	end
-
-	local function getCollectPromptRoot(prompt)
-		local parent = prompt.Parent
-		if not parent then
-			return nil
-		end
-
-		if parent:IsA("BasePart") then
-			return parent
-		end
-
-		if parent:IsA("Attachment") and parent.Parent and parent.Parent:IsA("BasePart") then
-			return parent.Parent
-		end
-
-		return nil
-	end
-
-	local function getPromptWorldPosition(prompt)
-		local root = getCollectPromptRoot(prompt)
-		return root and root.Position or nil
-	end
-
-	local function getNearestCollectPrompt(maxDistance)
-		local rootPart = getRootPart()
-		if not rootPart then
-			return nil
-		end
-
-		local nearestPrompt
-		local nearestDistance = maxDistance or math.huge
-		for _, prompt in ipairs(workspace:GetDescendants()) do
-			if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.MaxActivationDistance > 0 then
-				local promptPosition = getPromptWorldPosition(prompt)
-				if promptPosition and not prompt:IsDescendantOf(localPlayer.Character) then
-					local distance = (promptPosition - rootPart.Position).Magnitude
-					if distance < nearestDistance then
-						nearestDistance = distance
-						nearestPrompt = prompt
-					end
-				end
-			end
-		end
-
-		return nearestPrompt, nearestDistance
-	end
-
-	local function getNearestHumanoidTarget(maxDistance)
-		local rootPart = getRootPart()
-		local character = localPlayer.Character
-		if not rootPart then
-			return nil
-		end
-
-		local nearestModel
-		local nearestDistance = maxDistance or math.huge
-		for _, model in ipairs(workspace:GetChildren()) do
-			if model:IsA("Model") and model ~= character then
-				local humanoid = model:FindFirstChildOfClass("Humanoid")
-				local targetRoot = model:FindFirstChild("HumanoidRootPart")
-				if humanoid and humanoid.Health > 0 and targetRoot then
-					local distance = (targetRoot.Position - rootPart.Position).Magnitude
-					if distance < nearestDistance then
-						nearestDistance = distance
-						nearestModel = model
-					end
-				end
-			end
-		end
-
-		return nearestModel, nearestDistance
-	end
-
-	local function updateEsp()
-		if not utilityState.espEnabled then
-			clearEsp()
-			return
-		end
-
-		local tracked = {}
-		for _, model in ipairs(workspace:GetChildren()) do
-			if model:IsA("Model") and model ~= localPlayer.Character then
-				local humanoid = model:FindFirstChildOfClass("Humanoid")
-				local targetRoot = model:FindFirstChild("HumanoidRootPart")
-				if humanoid and targetRoot then
-					tracked[model] = {
-						adornee = targetRoot,
-						color = Color3.fromRGB(120, 255, 180),
-						text = model.Name,
-					}
-				end
-			end
-		end
-
-		for _, prompt in ipairs(workspace:GetDescendants()) do
-			if prompt:IsA("ProximityPrompt") and prompt.Enabled then
-				local promptRoot = getCollectPromptRoot(prompt)
-				if promptRoot then
-					tracked[prompt] = {
-						adornee = promptRoot,
-						color = Color3.fromRGB(255, 213, 102),
-						text = prompt.ObjectText ~= "" and prompt.ObjectText or "Collect",
-					}
-				end
-			end
-		end
-
-		for instance, gui in pairs(espEntries) do
-			if not tracked[instance] then
-				gui:Destroy()
-				espEntries[instance] = nil
-			end
-		end
-
-		for instance, data in pairs(tracked) do
-			local gui = espEntries[instance]
-			if not gui then
-				gui = Instance.new("BillboardGui")
-				gui.Name = "UtilityEsp"
-				gui.Size = UDim2.fromOffset(150, 34)
-				gui.StudsOffset = Vector3.new(0, 3.5, 0)
-				gui.AlwaysOnTop = true
-
-				local label = Instance.new("TextLabel")
-				label.Name = "Label"
-				label.Size = UDim2.fromScale(1, 1)
-				label.BackgroundTransparency = 1
-				label.TextScaled = true
-				label.TextStrokeTransparency = 0.3
-				label.Font = Enum.Font.GothamBold
-				label.Parent = gui
-
-				gui.Parent = data.adornee
-				espEntries[instance] = gui
-			end
-
-			gui.Adornee = data.adornee
-			gui.Parent = data.adornee
-			local label = gui:FindFirstChild("Label")
-			if label then
-				label.Text = data.text
-				label.TextColor3 = data.color
-			end
-		end
-	end
-
 	local function setNoclipEnabled(enabled)
-		utilityState.noclipEnabled = enabled
+		flyState.noclipEnabled = enabled
 		if not enabled then
 			for _, part in ipairs(getCharacterParts()) do
 				if part.Name ~= "HumanoidRootPart" then
@@ -891,35 +712,7 @@ local function bootstrap()
 				end
 			end
 		end
-		updateUtilityButtons()
-	end
-
-	local function setEspEnabled(enabled)
-		utilityState.espEnabled = enabled
-		updateEsp()
-		updateUtilityButtons()
-	end
-
-	local function setAutoCollectEnabled(enabled)
-		utilityState.autoCollectEnabled = enabled
-		if enabled then
-			utilityState.autoFarmEnabled = false
-		end
-		updateUtilityButtons()
-	end
-
-	local function setAutoFarmEnabled(enabled)
-		utilityState.autoFarmEnabled = enabled
-		if enabled then
-			utilityState.autoCollectEnabled = false
-			utilityState.autoKillEnabled = false
-		end
-		updateUtilityButtons()
-	end
-
-	local function setAutoKillEnabled(enabled)
-		utilityState.autoKillEnabled = enabled
-		updateUtilityButtons()
+		updateNoclipButton()
 	end
 
 	local function getGroundLockHeight(rootPart, character)
@@ -955,10 +748,6 @@ local function bootstrap()
 		zBox.Text = ""
 		setFlyEnabled(false)
 		setNoclipEnabled(false)
-		setEspEnabled(false)
-		setAutoCollectEnabled(false)
-		setAutoFarmEnabled(false)
-		setAutoKillEnabled(false)
 		setStatus("Execute di-reset.", false)
 		updateSavedSectionHeight()
 	end
@@ -1033,28 +822,8 @@ local function bootstrap()
 	end)
 
 	connect(noclipButton.MouseButton1Click, function()
-		setNoclipEnabled(not utilityState.noclipEnabled)
-		setStatus(utilityState.noclipEnabled and "Noclip aktif." or "Noclip dimatikan.", false)
-	end)
-
-	connect(espButton.MouseButton1Click, function()
-		setEspEnabled(not utilityState.espEnabled)
-		setStatus(utilityState.espEnabled and "ESP aktif." or "ESP dimatikan.", false)
-	end)
-
-	connect(autoCollectButton.MouseButton1Click, function()
-		setAutoCollectEnabled(not utilityState.autoCollectEnabled)
-		setStatus(utilityState.autoCollectEnabled and "Auto collect aktif." or "Auto collect dimatikan.", false)
-	end)
-
-	connect(autoFarmButton.MouseButton1Click, function()
-		setAutoFarmEnabled(not utilityState.autoFarmEnabled)
-		setStatus(utilityState.autoFarmEnabled and "Auto farm aktif." or "Auto farm dimatikan.", false)
-	end)
-
-	connect(autoKillButton.MouseButton1Click, function()
-		setAutoKillEnabled(not utilityState.autoKillEnabled)
-		setStatus(utilityState.autoKillEnabled and "Auto kill aktif." or "Auto kill dimatikan.", false)
+		setNoclipEnabled(not flyState.noclipEnabled)
+		setStatus(flyState.noclipEnabled and "Noclip aktif." or "Noclip dimatikan.", false)
 	end)
 
 	connect(lockHeightButton.MouseButton1Click, function()
@@ -1278,16 +1047,12 @@ local function bootstrap()
 	connect(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
 
 	connect(RunService.RenderStepped, function(deltaTime)
-		if utilityState.noclipEnabled then
+		if flyState.noclipEnabled then
 			for _, part in ipairs(getCharacterParts()) do
 				if part.Name ~= "HumanoidRootPart" then
 					part.CanCollide = false
 				end
 			end
-		end
-
-		if utilityState.espEnabled then
-			updateEsp()
 		end
 
 		if destroyed or not flyState.enabled then
@@ -1316,7 +1081,7 @@ local function bootstrap()
 					flyState.targetHeight += verticalInput * altitudeAdjustSpeed * deltaTime
 				end
 
-				local moveDirection = humanoid.MoveDirection
+				local moveDirection = getPlayerMoveVector()
 				local horizontalMoveVector
 				if moveDirection.Magnitude > analogDeadzone then
 					horizontalMoveVector = Vector3.new(moveDirection.X, 0, moveDirection.Z)
@@ -1337,8 +1102,9 @@ local function bootstrap()
 				local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
 				local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
 				flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
-				if horizontalMoveVector == Vector3.zero and math.abs(flyState.velocity.X) < 0.15 and math.abs(flyState.velocity.Z) < 0.15 then
+				if horizontalMoveVector == Vector3.zero then
 					flyState.velocity = Vector3.new(0, flyState.velocity.Y, 0)
+					rootPart.AssemblyAngularVelocity = Vector3.zero
 				end
 				rootPart.AssemblyLinearVelocity = flyState.velocity
 
@@ -1349,54 +1115,15 @@ local function bootstrap()
 				end
 			end
 		end
-
-		local now = os.clock()
-		if (utilityState.autoKillEnabled or utilityState.autoFarmEnabled) and attackRemote and now - utilityState.lastAttackAt >= 0.55 then
-			local target = getNearestHumanoidTarget(10)
-			if target then
-				utilityState.lastAttackAt = now
-				attackRemote:FireServer()
-			end
-		end
-
-		if (utilityState.autoCollectEnabled or utilityState.autoFarmEnabled) and now - utilityState.lastCollectAt >= 0.2 then
-			local rootPart = getRootPart()
-			local prompt, distance = getNearestCollectPrompt(150)
-			if rootPart and prompt then
-				local promptPosition = getPromptWorldPosition(prompt)
-				if promptPosition then
-					utilityState.lastCollectAt = now
-					if distance > math.max(prompt.MaxActivationDistance - 1, 4) then
-						rootPart.CFrame = CFrame.new(promptPosition + Vector3.new(0, 3, 0))
-					end
-					if fireproximityprompt then
-						pcall(function()
-							fireproximityprompt(prompt)
-						end)
-					end
-				end
-			end
-		end
-
-		if utilityState.autoFarmEnabled then
-			local rootPart = getRootPart()
-			local target = getNearestHumanoidTarget(120)
-			if rootPart and target then
-				local targetRoot = target:FindFirstChild("HumanoidRootPart")
-				if targetRoot then
-					rootPart.CFrame = CFrame.new(targetRoot.Position + Vector3.new(0, 3, 0))
-				end
-			end
-		end
 	end)
 
 	updateSavedSectionHeight()
 	updateContentCanvas()
 	resizeResponsive()
 	updateFlyButton()
+	updateNoclipButton()
 	updateLockHeightButton()
 	updateDiveBelowButton()
-	updateUtilityButtons()
 	setPanelVisible(false)
 end
 
