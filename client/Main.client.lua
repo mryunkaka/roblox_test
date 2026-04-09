@@ -35,6 +35,9 @@ end
 local isTouchDevice = UserInputService.TouchEnabled
 local flySpeed = 64
 local flySmoothing = 0.18
+local altitudeAdjustSpeed = 42
+local altitudeResponse = 7
+local maxVerticalSpeed = 56
 local savedCoordinates = {}
 local movementState = {
 	forward = 0,
@@ -47,6 +50,7 @@ local movementState = {
 local flyState = {
 	enabled = false,
 	velocity = Vector3.zero,
+	targetHeight = nil,
 }
 
 local flyKeys = {
@@ -463,6 +467,9 @@ local function teleportToPosition(position)
 
 	rootPart.CFrame = CFrame.new(position)
 	rootPart.AssemblyLinearVelocity = Vector3.zero
+	if flyState.enabled then
+		flyState.targetHeight = position.Y
+	end
 	setStatus("Teleport berhasil.", false)
 	return true
 end
@@ -484,12 +491,17 @@ local function setFlyEnabled(enabled)
 	updateFlyButton()
 
 	local humanoid = getHumanoid()
+	local rootPart = getRootPart()
 	if humanoid then
 		humanoid.PlatformStand = enabled
 	end
 
+	if enabled and rootPart then
+		flyState.targetHeight = rootPart.Position.Y
+	end
+
 	if not enabled then
-		local rootPart = getRootPart()
+		flyState.targetHeight = nil
 		if rootPart then
 			rootPart.AssemblyLinearVelocity = Vector3.zero
 		end
@@ -700,7 +712,7 @@ end)
 
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(resizeResponsive)
 
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(deltaTime)
 	if not flyState.enabled then
 		return
 	end
@@ -714,16 +726,27 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	humanoid.PlatformStand = true
+	flyState.targetHeight = flyState.targetHeight or rootPart.Position.Y
 
-	local moveVector = camera.CFrame.LookVector * (movementState.forward - movementState.backward)
-		+ camera.CFrame.RightVector * (movementState.right - movementState.left)
-		+ Vector3.yAxis * (movementState.up - movementState.down)
-
-	if moveVector.Magnitude > 0 then
-		moveVector = moveVector.Unit
+	local verticalInput = movementState.up - movementState.down
+	if verticalInput ~= 0 then
+		flyState.targetHeight += verticalInput * altitudeAdjustSpeed * deltaTime
 	end
 
-	local targetVelocity = moveVector * flySpeed
+	local horizontalMoveVector = Vector3.new(
+		camera.CFrame.LookVector.X,
+		0,
+		camera.CFrame.LookVector.Z
+	) * (movementState.forward - movementState.backward)
+		+ Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z) * (movementState.right - movementState.left)
+
+	if horizontalMoveVector.Magnitude > 0 then
+		horizontalMoveVector = horizontalMoveVector.Unit
+	end
+
+	local altitudeError = flyState.targetHeight - rootPart.Position.Y
+	local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
+	local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
 	flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
 	rootPart.AssemblyLinearVelocity = flyState.velocity
 
