@@ -33,10 +33,11 @@ local function bootstrap()
 	local altitudeAdjustSpeed = 42
 	local altitudeResponse = 7
 	local maxVerticalSpeed = 56
-	local lockHeightOffset = 25
+	local defaultLockHeightOffset = 25
 	local terrainProbeDistance = 512
+	local analogDeadzone = 0.18
 	local panelWidth = isTouchDevice and 336 or 320
-	local panelHeight = isTouchDevice and 452 or 404
+	local panelHeight = isTouchDevice and 388 or 404
 
 	local connections = {}
 	local destroyed = false
@@ -54,6 +55,8 @@ local function bootstrap()
 		velocity = Vector3.zero,
 		targetHeight = nil,
 		lockHeightEnabled = false,
+		diveBelowEnabled = false,
+		lockHeightOffset = defaultLockHeightOffset,
 	}
 
 	local flyKeys = {
@@ -255,6 +258,27 @@ local function bootstrap()
 		return button
 	end
 
+	local function createInputBox(name, placeholder)
+		local box = Instance.new("TextBox")
+		box.Name = name
+		box.BackgroundColor3 = Color3.fromRGB(12, 17, 24)
+		box.BackgroundTransparency = 0.08
+		box.BorderSizePixel = 0
+		box.PlaceholderText = placeholder
+		box.Text = ""
+		box.TextColor3 = Color3.fromRGB(240, 244, 248)
+		box.PlaceholderColor3 = Color3.fromRGB(140, 149, 162)
+		box.TextSize = 14
+		box.Font = Enum.Font.Gotham
+		box.ClearTextOnFocus = false
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 8)
+		corner.Parent = box
+
+		return box
+	end
+
 	local function setPanelVisible(visible)
 		if destroyed then
 			return
@@ -264,7 +288,7 @@ local function bootstrap()
 		toggleButton.Text = visible and "Hide Panel" or "Open Panel"
 	end
 
-	local flySection = createSection(isTouchDevice and 132 or 114)
+	local flySection = createSection(isTouchDevice and 126 or 118)
 	flySection.LayoutOrder = 1
 	flySection.Parent = content
 
@@ -279,43 +303,55 @@ local function bootstrap()
 	flyLabel.Font = Enum.Font.GothamSemibold
 	flyLabel.Parent = flySection
 
-	local flyHint = Instance.new("TextLabel")
-	flyHint.Size = UDim2.new(1, -24, 0, 34)
-	flyHint.Position = UDim2.fromOffset(12, 34)
-	flyHint.BackgroundTransparency = 1
-	flyHint.Text = isTouchDevice and "Keyboard: WASD + Space + Ctrl\nTouch: arah pakai analog Roblox, tombol hanya untuk naik/turun." or "WASD + Space + Ctrl"
-	flyHint.TextWrapped = true
-	flyHint.TextXAlignment = Enum.TextXAlignment.Left
-	flyHint.TextYAlignment = Enum.TextYAlignment.Top
-	flyHint.TextColor3 = Color3.fromRGB(172, 182, 196)
-	flyHint.TextSize = 12
-	flyHint.Font = Enum.Font.Gotham
-	flyHint.Parent = flySection
-
 	local flyButton = createActionButton("FlyToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	flyButton.Size = UDim2.fromOffset(82, 32)
-	flyButton.Position = UDim2.new(1, -94, 0.5, -16)
+	flyButton.Position = UDim2.new(1, -94, 0, 10)
 	flyButton.TextSize = 14
 	flyButton.Font = Enum.Font.GothamBold
 	flyButton.Parent = flySection
 
 	local lockHeightLabel = Instance.new("TextLabel")
-	lockHeightLabel.Size = UDim2.new(0.55, 0, 0, 18)
-	lockHeightLabel.Position = UDim2.fromOffset(12, isTouchDevice and 90 or 78)
+	lockHeightLabel.Size = UDim2.new(0, 100, 0, 18)
+	lockHeightLabel.Position = UDim2.fromOffset(12, 52)
 	lockHeightLabel.BackgroundTransparency = 1
-	lockHeightLabel.Text = "Lock Height (25)"
+	lockHeightLabel.Text = "Lock Height"
 	lockHeightLabel.TextXAlignment = Enum.TextXAlignment.Left
 	lockHeightLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
 	lockHeightLabel.TextSize = 13
 	lockHeightLabel.Font = Enum.Font.GothamMedium
 	lockHeightLabel.Parent = flySection
 
+	local lockHeightBox = createInputBox("LockHeightBox", "25")
+	lockHeightBox.Size = UDim2.fromOffset(70, 28)
+	lockHeightBox.Position = UDim2.fromOffset(114, 48)
+	lockHeightBox.Text = tostring(defaultLockHeightOffset)
+	lockHeightBox.TextSize = 13
+	lockHeightBox.Parent = flySection
+
 	local lockHeightButton = createActionButton("LockHeightToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	lockHeightButton.Size = UDim2.fromOffset(82, 28)
-	lockHeightButton.Position = UDim2.new(1, -94, 0, isTouchDevice and 84 or 72)
+	lockHeightButton.Position = UDim2.new(1, -94, 0, 48)
 	lockHeightButton.TextSize = 13
 	lockHeightButton.Font = Enum.Font.GothamBold
 	lockHeightButton.Parent = flySection
+
+	local diveBelowLabel = Instance.new("TextLabel")
+	diveBelowLabel.Size = UDim2.new(0, 100, 0, 18)
+	diveBelowLabel.Position = UDim2.fromOffset(12, 86)
+	diveBelowLabel.BackgroundTransparency = 1
+	diveBelowLabel.Text = "Dive Below"
+	diveBelowLabel.TextXAlignment = Enum.TextXAlignment.Left
+	diveBelowLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	diveBelowLabel.TextSize = 13
+	diveBelowLabel.Font = Enum.Font.GothamMedium
+	diveBelowLabel.Parent = flySection
+
+	local diveBelowButton = createActionButton("DiveBelowToggle", "OFF", Color3.fromRGB(120, 52, 52))
+	diveBelowButton.Size = UDim2.fromOffset(82, 28)
+	diveBelowButton.Position = UDim2.new(1, -94, 0, 82)
+	diveBelowButton.TextSize = 13
+	diveBelowButton.Font = Enum.Font.GothamBold
+	diveBelowButton.Parent = flySection
 
 	local teleportSection = createSection(148)
 	teleportSection.LayoutOrder = 2
@@ -346,24 +382,8 @@ local function bootstrap()
 	inputLayout.Parent = inputRow
 
 	local function createCoordinateBox(name, placeholder)
-		local box = Instance.new("TextBox")
-		box.Name = name
+		local box = createInputBox(name, placeholder)
 		box.Size = UDim2.new(1 / 3, -4, 1, 0)
-		box.BackgroundColor3 = Color3.fromRGB(12, 17, 24)
-		box.BackgroundTransparency = 0.08
-		box.BorderSizePixel = 0
-		box.PlaceholderText = placeholder
-		box.Text = ""
-		box.TextColor3 = Color3.fromRGB(240, 244, 248)
-		box.PlaceholderColor3 = Color3.fromRGB(140, 149, 162)
-		box.TextSize = 14
-		box.Font = Enum.Font.Gotham
-		box.ClearTextOnFocus = false
-
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 8)
-		corner.Parent = box
-
 		return box
 	end
 
@@ -527,6 +547,11 @@ local function bootstrap()
 		lockHeightButton.BackgroundColor3 = flyState.lockHeightEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(120, 52, 52)
 	end
 
+	local function updateDiveBelowButton()
+		diveBelowButton.Text = flyState.diveBelowEnabled and "ON" or "OFF"
+		diveBelowButton.BackgroundColor3 = flyState.diveBelowEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(120, 52, 52)
+	end
+
 	local function setStatus(text, isError)
 		statusLabel.Text = text
 		statusLabel.TextColor3 = isError and Color3.fromRGB(255, 122, 122) or Color3.fromRGB(172, 182, 196)
@@ -559,11 +584,25 @@ local function bootstrap()
 		local camera = workspace.CurrentCamera
 		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 		local compact = viewport.X <= 820 or viewport.Y <= 620 or isTouchDevice
+		local targetWidth = compact and 336 or 320
+		local targetHeight = compact and 388 or 404
+		local safeHeight = math.min(targetHeight, math.max(300, viewport.Y - 28))
 
-		panel.Size = UDim2.fromOffset(compact and 336 or 320, compact and 452 or 404)
+		panel.Size = UDim2.fromOffset(targetWidth, safeHeight)
 		panel.Position = clampToViewport(panel.Position, panel.Size, viewport)
 		toggleButton.Position = clampToViewport(toggleButton.Position, toggleButton.Size, viewport)
 		touchControls.Position = compact and UDim2.new(1, -130, 1, -136) or UDim2.new(1, -136, 1, -144)
+	end
+
+	local function getActiveLockHeightOffset()
+		local parsed = sanitizeNumber(lockHeightBox.Text)
+		if parsed and parsed > 0 then
+			flyState.lockHeightOffset = parsed
+			return parsed
+		end
+
+		lockHeightBox.Text = string.format("%.0f", flyState.lockHeightOffset)
+		return flyState.lockHeightOffset
 	end
 
 	local function setFlyEnabled(enabled)
@@ -581,6 +620,7 @@ local function bootstrap()
 		else
 			flyState.targetHeight = nil
 			flyState.lockHeightEnabled = false
+			flyState.diveBelowEnabled = false
 		end
 
 		if not enabled and rootPart then
@@ -589,6 +629,7 @@ local function bootstrap()
 
 		updateFlyButton()
 		updateLockHeightButton()
+		updateDiveBelowButton()
 	end
 
 	local function getGroundLockHeight(rootPart, character)
@@ -604,7 +645,7 @@ local function bootstrap()
 			return nil
 		end
 
-		return result.Position.Y + lockHeightOffset
+		return result.Position.Y + getActiveLockHeightOffset(), result.Position.Y - getActiveLockHeightOffset()
 	end
 
 	local function resetUtility()
@@ -702,16 +743,42 @@ local function bootstrap()
 			return
 		end
 
+		getActiveLockHeightOffset()
 		flyState.lockHeightEnabled = not flyState.lockHeightEnabled
 		if flyState.lockHeightEnabled then
 			local character = localPlayer.Character
 			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-			local lockHeight = rootPart and getGroundLockHeight(rootPart, character)
+			local lockHeight = rootPart and select(1, getGroundLockHeight(rootPart, character))
 			flyState.targetHeight = lockHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
 		end
 
 		updateLockHeightButton()
-		setStatus(flyState.lockHeightEnabled and "Lock height aktif di 25 stud dari permukaan." or "Lock height dimatikan.", false)
+		setStatus(
+			flyState.lockHeightEnabled and string.format("Lock height aktif di %.1f stud dari permukaan.", flyState.lockHeightOffset) or "Lock height dimatikan.",
+			false
+		)
+	end)
+
+	connect(diveBelowButton.MouseButton1Click, function()
+		if not flyState.enabled then
+			setStatus("Aktifkan fly dulu untuk memakai dive below.", true)
+			return
+		end
+
+		getActiveLockHeightOffset()
+		flyState.diveBelowEnabled = not flyState.diveBelowEnabled
+		if flyState.diveBelowEnabled then
+			local character = localPlayer.Character
+			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			local diveHeight = rootPart and select(2, getGroundLockHeight(rootPart, character))
+			flyState.targetHeight = diveHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
+		end
+
+		updateDiveBelowButton()
+		setStatus(
+			flyState.diveBelowEnabled and string.format("Dive below aktif di %.1f stud di bawah permukaan.", flyState.lockHeightOffset) or "Dive below dimatikan.",
+			false
+		)
 	end)
 
 	connect(getCoordinateButton.MouseButton1Click, function()
@@ -885,8 +952,13 @@ local function bootstrap()
 		flyState.targetHeight = flyState.targetHeight or rootPart.Position.Y
 
 		local verticalInput = movementState.up - movementState.down
-		if flyState.lockHeightEnabled then
-			local lockHeight = getGroundLockHeight(rootPart, character)
+		if flyState.diveBelowEnabled then
+			local _, diveHeight = getGroundLockHeight(rootPart, character)
+			if diveHeight then
+				flyState.targetHeight = diveHeight
+			end
+		elseif flyState.lockHeightEnabled then
+			local lockHeight = select(1, getGroundLockHeight(rootPart, character))
 			if lockHeight then
 				flyState.targetHeight = lockHeight
 			end
@@ -896,7 +968,7 @@ local function bootstrap()
 
 		local moveDirection = humanoid.MoveDirection
 		local horizontalMoveVector
-		if moveDirection.Magnitude > 0 then
+		if moveDirection.Magnitude > analogDeadzone then
 			horizontalMoveVector = Vector3.new(moveDirection.X, 0, moveDirection.Z)
 		else
 			horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
@@ -915,6 +987,9 @@ local function bootstrap()
 		local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
 		local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
 		flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
+		if horizontalMoveVector == Vector3.zero and math.abs(flyState.velocity.X) < 0.15 and math.abs(flyState.velocity.Z) < 0.15 then
+			flyState.velocity = Vector3.new(0, flyState.velocity.Y, 0)
+		end
 		rootPart.AssemblyLinearVelocity = flyState.velocity
 
 		local lookVector = camera.CFrame.LookVector
@@ -929,6 +1004,7 @@ local function bootstrap()
 	resizeResponsive()
 	updateFlyButton()
 	updateLockHeightButton()
+	updateDiveBelowButton()
 	setPanelVisible(false)
 end
 
