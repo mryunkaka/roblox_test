@@ -1,20 +1,43 @@
-local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local localPlayer = Players.LocalPlayer
-local playerGui = localPlayer:WaitForChild("PlayerGui")
-local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local attackRemote = remotes:WaitForChild("RequestAttack")
-local teleportRemote = remotes:WaitForChild("RequestTeleport")
+if not localPlayer then
+	return
+end
 
-local attackCooldown = 0.55
+local coreGuiContainer = nil
+pcall(function()
+	coreGuiContainer = game:GetService("CoreGui")
+end)
+
+local existingGui = nil
+for _, container in ipairs({coreGuiContainer, localPlayer:FindFirstChildOfClass("PlayerGui")}) do
+	if container then
+		local found = container:FindFirstChild("StandaloneMovementGui")
+		if found then
+			existingGui = found
+			break
+		end
+	end
+end
+
+if existingGui then
+	existingGui:Destroy()
+end
+
+local guiParent = localPlayer:FindFirstChildOfClass("PlayerGui")
+if coreGuiContainer then
+	guiParent = coreGuiContainer
+end
+
+if not guiParent then
+	return
+end
+
 local flySpeed = 64
 local flySmoothing = 0.18
-local lastAttackAt = 0
-local tracked = {}
 local movementState = {
 	forward = 0,
 	backward = 0,
@@ -26,13 +49,6 @@ local movementState = {
 local flyState = {
 	enabled = false,
 	velocity = Vector3.zero,
-}
-
-local keybinds = {
-	[Enum.KeyCode.One] = "Camp",
-	[Enum.KeyCode.Two] = "WatchTower",
-	[Enum.KeyCode.Three] = "River",
-	[Enum.KeyCode.Four] = "Cave",
 }
 
 local flyKeys = {
@@ -49,66 +65,41 @@ local function getCharacter()
 end
 
 local function getRootPart()
-	return getCharacter():FindFirstChild("HumanoidRootPart")
+	local character = getCharacter()
+	return character and character:FindFirstChild("HumanoidRootPart")
 end
 
 local function getHumanoid()
-	return getCharacter():FindFirstChildOfClass("Humanoid")
+	local character = getCharacter()
+	return character and character:FindFirstChildOfClass("Humanoid")
 end
 
-local function requestAttack()
-	local now = os.clock()
-	if now - lastAttackAt < attackCooldown then
-		return
+local function sanitizeNumber(text)
+	local value = tonumber(text)
+	if not value then
+		return nil
 	end
 
-	lastAttackAt = now
-	attackRemote:FireServer()
-end
-
-local function attachBillboard(instance)
-	if tracked[instance] or not instance:IsA("Model") then
-		return
+	if value ~= value or value == math.huge or value == -math.huge then
+		return nil
 	end
 
-	local adornee = instance:FindFirstChild("HumanoidRootPart") or instance.PrimaryPart
-	if not adornee then
-		return
-	end
-
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "DebugEsp"
-	billboard.Size = UDim2.fromOffset(160, 40)
-	billboard.StudsOffset = Vector3.new(0, 4, 0)
-	billboard.AlwaysOnTop = true
-	billboard.Adornee = adornee
-
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.TextScaled = true
-	label.TextColor3 = Color3.fromRGB(120, 255, 180)
-	label.TextStrokeTransparency = 0.3
-	label.Text = instance.Name
-	label.Parent = billboard
-
-	billboard.Parent = adornee
-	tracked[instance] = billboard
-end
-
-local function detachBillboard(instance)
-	local billboard = tracked[instance]
-	if billboard then
-		billboard:Destroy()
-		tracked[instance] = nil
-	end
+	return value
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "UtilityClientGui"
+screenGui.Name = "StandaloneMovementGui"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
+screenGui.Parent = guiParent
+
+pcall(function()
+	if gethui then
+		screenGui.Parent = gethui()
+	elseif syn and syn.protect_gui then
+		syn.protect_gui(screenGui)
+	end
+end)
 
 local toggleButton = Instance.new("TextButton")
 toggleButton.Name = "OpenCloseButton"
@@ -463,9 +454,9 @@ getCoordinateButton.MouseButton1Click:Connect(function()
 end)
 
 teleportButton.MouseButton1Click:Connect(function()
-	local x = tonumber(xBox.Text)
-	local y = tonumber(yBox.Text)
-	local z = tonumber(zBox.Text)
+	local x = sanitizeNumber(xBox.Text)
+	local y = sanitizeNumber(yBox.Text)
+	local z = sanitizeNumber(zBox.Text)
 
 	if not x or not y or not z then
 		setStatus("Koordinat tidak valid. Isi X, Y, Z dengan angka.", true)
@@ -493,31 +484,14 @@ localPlayer.CharacterAdded:Connect(function(character)
 	end
 end)
 
-for _, instance in CollectionService:GetTagged("DebugVisible") do
-	attachBillboard(instance)
-end
-
-CollectionService:GetInstanceAddedSignal("DebugVisible"):Connect(attachBillboard)
-CollectionService:GetInstanceRemovedSignal("DebugVisible"):Connect(detachBillboard)
-
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
-		return
-	end
-
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		requestAttack()
 		return
 	end
 
 	local movementKey = flyKeys[input.KeyCode]
 	if movementKey then
 		movementState[movementKey] = 1
-	end
-
-	local targetNode = keybinds[input.KeyCode]
-	if targetNode then
-		teleportRemote:FireServer(targetNode)
 	end
 end)
 
@@ -529,13 +503,6 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 RunService.RenderStepped:Connect(function()
-	for instance, billboard in tracked do
-		if not instance.Parent then
-			billboard:Destroy()
-			tracked[instance] = nil
-		end
-	end
-
 	if not flyState.enabled then
 		return
 	end
