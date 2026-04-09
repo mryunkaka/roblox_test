@@ -132,24 +132,6 @@ local function bootstrap()
 		return Vector3.zero
 	end
 
-	local function getCameraRelativeMoveVector(camera, inputVector)
-		local forward = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
-		local right = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
-		if forward.Magnitude > 0 then
-			forward = forward.Unit
-		end
-		if right.Magnitude > 0 then
-			right = right.Unit
-		end
-
-		local worldMove = right * inputVector.X - forward * inputVector.Z
-		if worldMove.Magnitude > 0 then
-			return worldMove.Unit
-		end
-
-		return Vector3.zero
-	end
-
 	local function sanitizeNumber(text)
 		local value = tonumber(text)
 		if not value then
@@ -1102,10 +1084,11 @@ local function bootstrap()
 					flyState.targetHeight += verticalInput * altitudeAdjustSpeed * deltaTime
 				end
 
-				local moveDirection = getPlayerMoveVector()
+				local moveInput = getPlayerMoveVector()
 				local horizontalMoveVector
-				if moveDirection.Magnitude > analogDeadzone then
-					horizontalMoveVector = getCameraRelativeMoveVector(camera, moveDirection)
+				if moveInput.Magnitude > analogDeadzone then
+					local humanoidMove = humanoid.MoveDirection
+					horizontalMoveVector = Vector3.new(humanoidMove.X, 0, humanoidMove.Z)
 				else
 					horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
 						* (movementState.forward - movementState.backward)
