@@ -33,8 +33,10 @@ local function bootstrap()
 	local altitudeAdjustSpeed = 42
 	local altitudeResponse = 7
 	local maxVerticalSpeed = 56
+	local lockHeightOffset = 25
+	local terrainProbeDistance = 512
 	local panelWidth = isTouchDevice and 336 or 320
-	local panelHeight = isTouchDevice and 410 or 368
+	local panelHeight = isTouchDevice and 452 or 404
 
 	local connections = {}
 	local destroyed = false
@@ -51,6 +53,7 @@ local function bootstrap()
 		enabled = false,
 		velocity = Vector3.zero,
 		targetHeight = nil,
+		lockHeightEnabled = false,
 	}
 
 	local flyKeys = {
@@ -197,11 +200,15 @@ local function bootstrap()
 	contentScroll.Name = "ContentScroll"
 	contentScroll.Size = UDim2.new(1, -20, 1, -48)
 	contentScroll.Position = UDim2.fromOffset(10, 40)
+	contentScroll.Active = true
 	contentScroll.BackgroundTransparency = 1
 	contentScroll.BorderSizePixel = 0
+	contentScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	contentScroll.ScrollingEnabled = true
+	contentScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	contentScroll.CanvasSize = UDim2.fromOffset(0, 0)
 	contentScroll.ScrollBarImageColor3 = Color3.fromRGB(82, 164, 255)
-	contentScroll.ScrollBarThickness = 4
+	contentScroll.ScrollBarThickness = isTouchDevice and 6 or 4
 	contentScroll.Parent = panel
 
 	local content = Instance.new("Frame")
@@ -257,7 +264,7 @@ local function bootstrap()
 		toggleButton.Text = visible and "Hide Panel" or "Open Panel"
 	end
 
-	local flySection = createSection(isTouchDevice and 86 or 72)
+	local flySection = createSection(isTouchDevice and 132 or 114)
 	flySection.LayoutOrder = 1
 	flySection.Parent = content
 
@@ -273,10 +280,10 @@ local function bootstrap()
 	flyLabel.Parent = flySection
 
 	local flyHint = Instance.new("TextLabel")
-	flyHint.Size = UDim2.new(1, -24, 0, 36)
+	flyHint.Size = UDim2.new(1, -24, 0, 34)
 	flyHint.Position = UDim2.fromOffset(12, 34)
 	flyHint.BackgroundTransparency = 1
-	flyHint.Text = isTouchDevice and "Keyboard: WASD + Space + Ctrl\nTouch: gunakan tombol arah di bawah" or "WASD + Space + Ctrl"
+	flyHint.Text = isTouchDevice and "Keyboard: WASD + Space + Ctrl\nTouch: arah pakai analog Roblox, tombol hanya untuk naik/turun." or "WASD + Space + Ctrl"
 	flyHint.TextWrapped = true
 	flyHint.TextXAlignment = Enum.TextXAlignment.Left
 	flyHint.TextYAlignment = Enum.TextYAlignment.Top
@@ -291,6 +298,24 @@ local function bootstrap()
 	flyButton.TextSize = 14
 	flyButton.Font = Enum.Font.GothamBold
 	flyButton.Parent = flySection
+
+	local lockHeightLabel = Instance.new("TextLabel")
+	lockHeightLabel.Size = UDim2.new(0.55, 0, 0, 18)
+	lockHeightLabel.Position = UDim2.fromOffset(12, isTouchDevice and 90 or 78)
+	lockHeightLabel.BackgroundTransparency = 1
+	lockHeightLabel.Text = "Lock Height (25)"
+	lockHeightLabel.TextXAlignment = Enum.TextXAlignment.Left
+	lockHeightLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	lockHeightLabel.TextSize = 13
+	lockHeightLabel.Font = Enum.Font.GothamMedium
+	lockHeightLabel.Parent = flySection
+
+	local lockHeightButton = createActionButton("LockHeightToggle", "OFF", Color3.fromRGB(120, 52, 52))
+	lockHeightButton.Size = UDim2.fromOffset(82, 28)
+	lockHeightButton.Position = UDim2.new(1, -94, 0, isTouchDevice and 84 or 72)
+	lockHeightButton.TextSize = 13
+	lockHeightButton.Font = Enum.Font.GothamBold
+	lockHeightButton.Parent = flySection
 
 	local teleportSection = createSection(148)
 	teleportSection.LayoutOrder = 2
@@ -412,7 +437,7 @@ local function bootstrap()
 	savedList.SortOrder = Enum.SortOrder.LayoutOrder
 	savedList.Parent = savedContainer
 
-	local executeSection = createSection(60)
+	local executeSection = createSection(96)
 	executeSection.LayoutOrder = 4
 	executeSection.Parent = content
 
@@ -428,28 +453,29 @@ local function bootstrap()
 	executeLabel.Parent = executeSection
 
 	local executeRow = Instance.new("Frame")
-	executeRow.Size = UDim2.new(1, -24, 0, 26)
+	executeRow.Size = UDim2.new(1, -24, 0, 52)
 	executeRow.Position = UDim2.fromOffset(12, 28)
 	executeRow.BackgroundTransparency = 1
 	executeRow.Parent = executeSection
 
 	local executeLayout = Instance.new("UIListLayout")
-	executeLayout.FillDirection = Enum.FillDirection.Horizontal
+	executeLayout.FillDirection = Enum.FillDirection.Vertical
+	executeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	executeLayout.Padding = UDim.new(0, 8)
 	executeLayout.Parent = executeRow
 
 	local restartButton = createActionButton("RestartButton", "Restart Execute", Color3.fromRGB(52, 108, 173))
-	restartButton.Size = UDim2.new(0.5, -4, 1, 0)
+	restartButton.Size = UDim2.new(1, 0, 0, 22)
 	restartButton.Parent = executeRow
 
 	local closeExecuteButton = createActionButton("CloseExecuteButton", "Close Execute", Color3.fromRGB(148, 58, 58))
-	closeExecuteButton.Size = UDim2.new(0.5, -4, 1, 0)
+	closeExecuteButton.Size = UDim2.new(1, 0, 0, 22)
 	closeExecuteButton.Parent = executeRow
 
 	local touchControls = Instance.new("Frame")
 	touchControls.Name = "TouchControls"
-	touchControls.Size = UDim2.fromOffset(236, 170)
-	touchControls.Position = UDim2.new(0, 12, 1, -182)
+	touchControls.Size = UDim2.fromOffset(118, 116)
+	touchControls.Position = UDim2.new(1, -130, 1, -136)
 	touchControls.BackgroundTransparency = 1
 	touchControls.Visible = false
 	touchControls.Parent = screenGui
@@ -475,12 +501,8 @@ local function bootstrap()
 		return button
 	end
 
-	local touchForward = createTouchButton("TouchForward", "^", UDim2.fromOffset(64, 0))
-	local touchLeft = createTouchButton("TouchLeft", "<", UDim2.fromOffset(0, 56))
-	local touchBackward = createTouchButton("TouchBackward", "v", UDim2.fromOffset(64, 56))
-	local touchRight = createTouchButton("TouchRight", ">", UDim2.fromOffset(128, 56))
-	local touchUp = createTouchButton("TouchUp", "+", UDim2.fromOffset(64, 112))
-	local touchDown = createTouchButton("TouchDown", "-", UDim2.fromOffset(128, 112))
+	local touchUp = createTouchButton("TouchUp", "+", UDim2.fromOffset(58, 0))
+	local touchDown = createTouchButton("TouchDown", "-", UDim2.fromOffset(58, 58))
 
 	local function updateContentCanvas()
 		content.Size = UDim2.new(1, -6, 0, listLayout.AbsoluteContentSize.Y)
@@ -498,6 +520,11 @@ local function bootstrap()
 		flyButton.Text = flyState.enabled and "ON" or "OFF"
 		flyButton.BackgroundColor3 = flyState.enabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(120, 52, 52)
 		touchControls.Visible = isTouchDevice and flyState.enabled and not destroyed
+	end
+
+	local function updateLockHeightButton()
+		lockHeightButton.Text = flyState.lockHeightEnabled and "ON" or "OFF"
+		lockHeightButton.BackgroundColor3 = flyState.lockHeightEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(120, 52, 52)
 	end
 
 	local function setStatus(text, isError)
@@ -533,10 +560,10 @@ local function bootstrap()
 		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 		local compact = viewport.X <= 820 or viewport.Y <= 620 or isTouchDevice
 
-		panel.Size = UDim2.fromOffset(compact and 336 or 320, compact and 410 or 368)
+		panel.Size = UDim2.fromOffset(compact and 336 or 320, compact and 452 or 404)
 		panel.Position = clampToViewport(panel.Position, panel.Size, viewport)
 		toggleButton.Position = clampToViewport(toggleButton.Position, toggleButton.Size, viewport)
-		touchControls.Position = compact and UDim2.new(0, 12, 1, -182) or UDim2.new(0, 16, 1, -190)
+		touchControls.Position = compact and UDim2.new(1, -130, 1, -136) or UDim2.new(1, -136, 1, -144)
 	end
 
 	local function setFlyEnabled(enabled)
@@ -553,6 +580,7 @@ local function bootstrap()
 			flyState.targetHeight = rootPart.Position.Y
 		else
 			flyState.targetHeight = nil
+			flyState.lockHeightEnabled = false
 		end
 
 		if not enabled and rootPart then
@@ -560,6 +588,23 @@ local function bootstrap()
 		end
 
 		updateFlyButton()
+		updateLockHeightButton()
+	end
+
+	local function getGroundLockHeight(rootPart, character)
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		raycastParams.FilterDescendantsInstances = {character}
+		raycastParams.IgnoreWater = false
+
+		local rayOrigin = rootPart.Position + Vector3.new(0, 6, 0)
+		local rayDirection = Vector3.new(0, -terrainProbeDistance, 0)
+		local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+		if not result then
+			return nil
+		end
+
+		return result.Position.Y + lockHeightOffset
 	end
 
 	local function resetUtility()
@@ -649,6 +694,24 @@ local function bootstrap()
 	connect(flyButton.MouseButton1Click, function()
 		setFlyEnabled(not flyState.enabled)
 		setStatus(flyState.enabled and "Fly aktif." or "Fly dimatikan.", false)
+	end)
+
+	connect(lockHeightButton.MouseButton1Click, function()
+		if not flyState.enabled then
+			setStatus("Aktifkan fly dulu untuk memakai lock height.", true)
+			return
+		end
+
+		flyState.lockHeightEnabled = not flyState.lockHeightEnabled
+		if flyState.lockHeightEnabled then
+			local character = localPlayer.Character
+			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			local lockHeight = rootPart and getGroundLockHeight(rootPart, character)
+			flyState.targetHeight = lockHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
+		end
+
+		updateLockHeightButton()
+		setStatus(flyState.lockHeightEnabled and "Lock height aktif di 25 stud dari permukaan." or "Lock height dimatikan.", false)
 	end)
 
 	connect(getCoordinateButton.MouseButton1Click, function()
@@ -768,10 +831,6 @@ local function bootstrap()
 		end)
 	end
 
-	bindTouchDirection(touchForward, "forward")
-	bindTouchDirection(touchBackward, "backward")
-	bindTouchDirection(touchLeft, "left")
-	bindTouchDirection(touchRight, "right")
 	bindTouchDirection(touchUp, "up")
 	bindTouchDirection(touchDown, "down")
 
@@ -826,17 +885,30 @@ local function bootstrap()
 		flyState.targetHeight = flyState.targetHeight or rootPart.Position.Y
 
 		local verticalInput = movementState.up - movementState.down
-		if verticalInput ~= 0 then
+		if flyState.lockHeightEnabled then
+			local lockHeight = getGroundLockHeight(rootPart, character)
+			if lockHeight then
+				flyState.targetHeight = lockHeight
+			end
+		elseif verticalInput ~= 0 then
 			flyState.targetHeight += verticalInput * altitudeAdjustSpeed * deltaTime
 		end
 
-		local horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
-			* (movementState.forward - movementState.backward)
-			+ Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
-			* (movementState.right - movementState.left)
+		local moveDirection = humanoid.MoveDirection
+		local horizontalMoveVector
+		if moveDirection.Magnitude > 0 then
+			horizontalMoveVector = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+		else
+			horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+				* (movementState.forward - movementState.backward)
+				+ Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
+				* (movementState.right - movementState.left)
+		end
 
 		if horizontalMoveVector.Magnitude > 0 then
 			horizontalMoveVector = horizontalMoveVector.Unit
+		else
+			horizontalMoveVector = Vector3.zero
 		end
 
 		local altitudeError = flyState.targetHeight - rootPart.Position.Y
@@ -856,6 +928,7 @@ local function bootstrap()
 	updateContentCanvas()
 	resizeResponsive()
 	updateFlyButton()
+	updateLockHeightButton()
 	setPanelVisible(false)
 end
 
