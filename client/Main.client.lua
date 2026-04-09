@@ -871,23 +871,28 @@ local function bootstrap()
 		local token = utilityState.autoClickToken + 1
 		utilityState.autoClickToken = token
 		utilityState.autoClickEnabled = true
-		utilityState.nextAutoClickAt = os.clock()
+		local waitTime = getAutoClickInterval()
+		utilityState.nextAutoClickAt = os.clock() + waitTime
 		updateAutoClickButton()
 		updateAutoClickCooldownLabel()
 
 		task.spawn(function()
 			while not destroyed and utilityState.autoClickEnabled and utilityState.autoClickToken == token do
-				performAutoClick()
-
-				local waitTime = getAutoClickInterval()
-				utilityState.nextAutoClickAt = os.clock() + waitTime
-				updateAutoClickCooldownLabel()
 				local elapsed = 0
 				while elapsed < waitTime and not destroyed and utilityState.autoClickEnabled and utilityState.autoClickToken == token do
 					local step = math.min(0.25, waitTime - elapsed)
 					task.wait(step)
 					elapsed += step
 				end
+
+				if destroyed or not utilityState.autoClickEnabled or utilityState.autoClickToken ~= token then
+					break
+				end
+
+				performAutoClick()
+				waitTime = getAutoClickInterval()
+				utilityState.nextAutoClickAt = os.clock() + waitTime
+				updateAutoClickCooldownLabel()
 			end
 		end)
 	end
@@ -1258,11 +1263,10 @@ local function bootstrap()
 			return
 		end
 
-		local camera = workspace.CurrentCamera
 		VirtualUser:CaptureController()
-		VirtualUser:Button2Down(Vector2.zero, camera and camera.CFrame or CFrame.new())
+		VirtualUser:SetKeyDown("0x57")
 		task.wait(0.1)
-		VirtualUser:Button2Up(Vector2.zero, camera and camera.CFrame or CFrame.new())
+		VirtualUser:SetKeyUp("0x57")
 	end)
 
 	connect(workspace:GetPropertyChangedSignal("CurrentCamera"), resizeResponsive)
