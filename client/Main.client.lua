@@ -67,6 +67,7 @@ local function bootstrap()
 		autoClickEnabled = false,
 		autoClickInterval = 9.5 * 60,
 		autoClickToken = 0,
+		nextAutoClickAt = 0,
 	}
 
 	local flyKeys = {
@@ -541,7 +542,7 @@ local function bootstrap()
 	savedList.SortOrder = Enum.SortOrder.LayoutOrder
 	savedList.Parent = savedContainer
 
-	local utilitySection = createSection(128)
+	local utilitySection = createSection(154)
 	utilitySection.LayoutOrder = 4
 	utilitySection.Parent = content
 
@@ -598,6 +599,17 @@ local function bootstrap()
 	autoClickBox.Text = tostring(utilityState.autoClickInterval)
 	autoClickBox.TextSize = 13
 	autoClickBox.Parent = utilitySection
+
+	local autoClickCooldownLabel = Instance.new("TextLabel")
+	autoClickCooldownLabel.Size = UDim2.new(1, -24, 0, 18)
+	autoClickCooldownLabel.Position = UDim2.fromOffset(12, 138)
+	autoClickCooldownLabel.BackgroundTransparency = 1
+	autoClickCooldownLabel.Text = "Cooldown: siap"
+	autoClickCooldownLabel.TextXAlignment = Enum.TextXAlignment.Left
+	autoClickCooldownLabel.TextColor3 = Color3.fromRGB(172, 182, 196)
+	autoClickCooldownLabel.TextSize = 12
+	autoClickCooldownLabel.Font = Enum.Font.Gotham
+	autoClickCooldownLabel.Parent = utilitySection
 
 	local executeSection = createSection(96)
 	executeSection.LayoutOrder = 5
@@ -679,6 +691,21 @@ local function bootstrap()
 		updateContentCanvas()
 	end
 
+	local function updateAutoClickCooldownLabel()
+		if not utilityState.autoClickEnabled then
+			autoClickCooldownLabel.Text = "Cooldown: mati"
+			return
+		end
+
+		local remaining = math.max(0, utilityState.nextAutoClickAt - os.clock())
+		if remaining <= 0.05 then
+			autoClickCooldownLabel.Text = "Cooldown: klik sekarang"
+			return
+		end
+
+		autoClickCooldownLabel.Text = string.format("Cooldown: %.1f detik", remaining)
+	end
+
 	local function updateFlyButton()
 		setButtonState(flyButton, flyState.enabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
 		touchControls.Visible = isTouchDevice and flyState.enabled and not destroyed
@@ -734,6 +761,57 @@ local function bootstrap()
 		return true
 	end
 
+	local function refreshSavedCoordinateRows()
+		for _, child in ipairs(savedContainer:GetChildren()) do
+			if not child:IsA("UIListLayout") then
+				child:Destroy()
+			end
+		end
+
+		for index, position in ipairs(savedCoordinates) do
+			local row = Instance.new("Frame")
+			row.Name = "Coord" .. index
+			row.Size = UDim2.new(1, 0, 0, 34)
+			row.BackgroundTransparency = 1
+			row.LayoutOrder = index
+			row.Parent = savedContainer
+
+			local rowLabel = Instance.new("TextLabel")
+			rowLabel.Size = UDim2.new(1, -126, 1, 0)
+			rowLabel.BackgroundTransparency = 1
+			rowLabel.Text = string.format("Coordinate %d  |  %.1f, %.1f, %.1f", index, position.X, position.Y, position.Z)
+			rowLabel.TextXAlignment = Enum.TextXAlignment.Left
+			rowLabel.TextColor3 = Color3.fromRGB(232, 236, 240)
+			rowLabel.TextSize = 12
+			rowLabel.Font = Enum.Font.Gotham
+			rowLabel.Parent = row
+
+			local useButton = createActionButton("Use", "Go", Color3.fromRGB(46, 138, 90))
+			useButton.Size = UDim2.fromOffset(54, 28)
+			useButton.Position = UDim2.new(1, -112, 0.5, -14)
+			useButton.Parent = row
+
+			local deleteButton = createActionButton("Delete", "Del", Color3.fromRGB(148, 58, 58))
+			deleteButton.Size = UDim2.fromOffset(46, 28)
+			deleteButton.Position = UDim2.new(1, -50, 0.5, -14)
+			deleteButton.Parent = row
+
+			connect(useButton.MouseButton1Click, function()
+				fillCoordinateBoxes(position)
+				teleportToPosition(position)
+			end)
+
+			connect(deleteButton.MouseButton1Click, function()
+				table.remove(savedCoordinates, index)
+				refreshSavedCoordinateRows()
+				setStatus(string.format("Coordinate %d dihapus.", index), false)
+				updateSavedSectionHeight()
+			end)
+		end
+
+		updateSavedSectionHeight()
+	end
+
 	local function resizeResponsive()
 		local camera = workspace.CurrentCamera
 		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
@@ -784,20 +862,26 @@ local function bootstrap()
 	local function stopAutoClick()
 		utilityState.autoClickEnabled = false
 		utilityState.autoClickToken += 1
+		utilityState.nextAutoClickAt = 0
 		updateAutoClickButton()
+		updateAutoClickCooldownLabel()
 	end
 
 	local function startAutoClick()
 		local token = utilityState.autoClickToken + 1
 		utilityState.autoClickToken = token
 		utilityState.autoClickEnabled = true
+		utilityState.nextAutoClickAt = os.clock()
 		updateAutoClickButton()
+		updateAutoClickCooldownLabel()
 
 		task.spawn(function()
 			while not destroyed and utilityState.autoClickEnabled and utilityState.autoClickToken == token do
 				performAutoClick()
 
 				local waitTime = getAutoClickInterval()
+				utilityState.nextAutoClickAt = os.clock() + waitTime
+				updateAutoClickCooldownLabel()
 				local elapsed = 0
 				while elapsed < waitTime and not destroyed and utilityState.autoClickEnabled and utilityState.autoClickToken == token do
 					local step = math.min(0.25, waitTime - elapsed)
@@ -867,11 +951,7 @@ local function bootstrap()
 
 	local function resetUtility()
 		savedCoordinates = {}
-		for _, child in ipairs(savedContainer:GetChildren()) do
-			if not child:IsA("UIListLayout") then
-				child:Destroy()
-			end
-		end
+		refreshSavedCoordinateRows()
 
 		for key in pairs(movementState) do
 			movementState[key] = 0
@@ -887,7 +967,6 @@ local function bootstrap()
 		setNoclipEnabled(false)
 		updateAntiAfkButton()
 		setStatus("Execute di-reset.", false)
-		updateSavedSectionHeight()
 	end
 
 	local function destroyUtility()
@@ -1035,36 +1114,8 @@ local function bootstrap()
 	local function addSavedCoordinate(position)
 		table.insert(savedCoordinates, position)
 		local index = #savedCoordinates
-
-		local row = Instance.new("Frame")
-		row.Name = "Coord" .. index
-		row.Size = UDim2.new(1, 0, 0, 34)
-		row.BackgroundTransparency = 1
-		row.LayoutOrder = index
-		row.Parent = savedContainer
-
-		local rowLabel = Instance.new("TextLabel")
-		rowLabel.Size = UDim2.new(1, -92, 1, 0)
-		rowLabel.BackgroundTransparency = 1
-		rowLabel.Text = string.format("Coordinate %d  |  %.1f, %.1f, %.1f", index, position.X, position.Y, position.Z)
-		rowLabel.TextXAlignment = Enum.TextXAlignment.Left
-		rowLabel.TextColor3 = Color3.fromRGB(232, 236, 240)
-		rowLabel.TextSize = 12
-		rowLabel.Font = Enum.Font.Gotham
-		rowLabel.Parent = row
-
-		local useButton = createActionButton("Use", "Go", Color3.fromRGB(46, 138, 90))
-		useButton.Size = UDim2.fromOffset(64, 28)
-		useButton.Position = UDim2.new(1, -68, 0.5, -14)
-		useButton.Parent = row
-
-		connect(useButton.MouseButton1Click, function()
-			fillCoordinateBoxes(position)
-			teleportToPosition(position)
-		end)
-
+		refreshSavedCoordinateRows()
 		setStatus(string.format("Coordinate %d tersimpan.", index), false)
-		updateSavedSectionHeight()
 	end
 
 	connect(saveInputButton.MouseButton1Click, function()
@@ -1219,6 +1270,8 @@ local function bootstrap()
 	connect(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
 
 	connect(RunService.RenderStepped, function(deltaTime)
+		updateAutoClickCooldownLabel()
+
 		if flyState.noclipEnabled then
 			for _, part in ipairs(getCharacterParts()) do
 				if part.Name ~= "HumanoidRootPart" then
@@ -1300,6 +1353,7 @@ local function bootstrap()
 	updateDiveBelowButton()
 	updateAntiAfkButton()
 	updateAutoClickButton()
+	updateAutoClickCooldownLabel()
 	setPanelVisible(false)
 end
 
