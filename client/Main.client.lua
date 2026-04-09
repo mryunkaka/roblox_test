@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
 
 local localPlayer = Players.LocalPlayer
 if not localPlayer then
@@ -60,6 +61,12 @@ local function bootstrap()
 		diveBelowEnabled = false,
 		noclipEnabled = false,
 		lockHeightOffset = defaultLockHeightOffset,
+	}
+	local utilityState = {
+		antiAfkEnabled = true,
+		autoClickEnabled = false,
+		autoClickInterval = 9.5 * 60,
+		autoClickToken = 0,
 	}
 
 	local flyKeys = {
@@ -337,6 +344,16 @@ local function bootstrap()
 		toggleButton.Text = visible and "Hide Panel" or "Open Panel"
 	end
 
+	local function sendNotification(text)
+		pcall(function()
+			game:GetService("StarterGui"):SetCore("SendNotification", {
+				Title = "Movement Panel",
+				Text = text,
+				Duration = 3,
+			})
+		end)
+	end
+
 	local flySection = createSection(isTouchDevice and 126 or 118)
 	flySection.LayoutOrder = 1
 	flySection.Parent = content
@@ -524,8 +541,66 @@ local function bootstrap()
 	savedList.SortOrder = Enum.SortOrder.LayoutOrder
 	savedList.Parent = savedContainer
 
+	local utilitySection = createSection(128)
+	utilitySection.LayoutOrder = 4
+	utilitySection.Parent = content
+
+	local utilityLabel = Instance.new("TextLabel")
+	utilityLabel.Size = UDim2.new(1, -24, 0, 20)
+	utilityLabel.Position = UDim2.fromOffset(12, 10)
+	utilityLabel.BackgroundTransparency = 1
+	utilityLabel.Text = "AFK / Auto Click"
+	utilityLabel.TextXAlignment = Enum.TextXAlignment.Left
+	utilityLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	utilityLabel.TextSize = 15
+	utilityLabel.Font = Enum.Font.GothamSemibold
+	utilityLabel.Parent = utilitySection
+
+	local antiAfkLabel = Instance.new("TextLabel")
+	antiAfkLabel.Size = UDim2.new(0, 120, 0, 18)
+	antiAfkLabel.Position = UDim2.fromOffset(12, 42)
+	antiAfkLabel.BackgroundTransparency = 1
+	antiAfkLabel.Text = "Anti AFK"
+	antiAfkLabel.TextXAlignment = Enum.TextXAlignment.Left
+	antiAfkLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	antiAfkLabel.TextSize = 13
+	antiAfkLabel.Font = Enum.Font.GothamMedium
+	antiAfkLabel.Parent = utilitySection
+
+	local antiAfkButton = createActionButton("AntiAfkToggle", "OFF", Color3.fromRGB(120, 52, 52))
+	antiAfkButton.Size = UDim2.fromOffset(82, 28)
+	antiAfkButton.Position = UDim2.new(1, -94, 0, 38)
+	antiAfkButton.TextSize = 13
+	antiAfkButton.Font = Enum.Font.GothamBold
+	antiAfkButton.Parent = utilitySection
+
+	local autoClickLabel = Instance.new("TextLabel")
+	autoClickLabel.Size = UDim2.new(0, 120, 0, 18)
+	autoClickLabel.Position = UDim2.fromOffset(12, 76)
+	autoClickLabel.BackgroundTransparency = 1
+	autoClickLabel.Text = "Auto Click"
+	autoClickLabel.TextXAlignment = Enum.TextXAlignment.Left
+	autoClickLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	autoClickLabel.TextSize = 13
+	autoClickLabel.Font = Enum.Font.GothamMedium
+	autoClickLabel.Parent = utilitySection
+
+	local autoClickButton = createActionButton("AutoClickToggle", "OFF", Color3.fromRGB(120, 52, 52))
+	autoClickButton.Size = UDim2.fromOffset(82, 28)
+	autoClickButton.Position = UDim2.new(1, -94, 0, 72)
+	autoClickButton.TextSize = 13
+	autoClickButton.Font = Enum.Font.GothamBold
+	autoClickButton.Parent = utilitySection
+
+	local autoClickBox = createInputBox("AutoClickIntervalBox", "Interval detik")
+	autoClickBox.Size = UDim2.new(1, -24, 0, 30)
+	autoClickBox.Position = UDim2.fromOffset(12, 106)
+	autoClickBox.Text = tostring(utilityState.autoClickInterval)
+	autoClickBox.TextSize = 13
+	autoClickBox.Parent = utilitySection
+
 	local executeSection = createSection(96)
-	executeSection.LayoutOrder = 4
+	executeSection.LayoutOrder = 5
 	executeSection.Parent = content
 
 	local executeLabel = Instance.new("TextLabel")
@@ -623,6 +698,14 @@ local function bootstrap()
 		setButtonState(noclipButton, flyState.noclipEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
 	end
 
+	local function updateAntiAfkButton()
+		setButtonState(antiAfkButton, utilityState.antiAfkEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
+	end
+
+	local function updateAutoClickButton()
+		setButtonState(autoClickButton, utilityState.autoClickEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
+	end
+
 	local function setStatus(text, isError)
 		statusLabel.Text = text
 		statusLabel.TextColor3 = isError and Color3.fromRGB(255, 122, 122) or Color3.fromRGB(172, 182, 196)
@@ -674,6 +757,55 @@ local function bootstrap()
 
 		lockHeightBox.Text = string.format("%.0f", flyState.lockHeightOffset)
 		return flyState.lockHeightOffset
+	end
+
+	local function getAutoClickInterval()
+		local parsed = sanitizeNumber(autoClickBox.Text)
+		if parsed and parsed > 0 then
+			utilityState.autoClickInterval = parsed
+			return parsed
+		end
+
+		autoClickBox.Text = tostring(utilityState.autoClickInterval)
+		return utilityState.autoClickInterval
+	end
+
+	local function performAutoClick()
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize or Vector2.new(0, 0)
+		local clickPosition = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
+
+		VirtualUser:CaptureController()
+		VirtualUser:Button1Down(clickPosition, camera and camera.CFrame or CFrame.new())
+		task.wait()
+		VirtualUser:Button1Up(clickPosition, camera and camera.CFrame or CFrame.new())
+	end
+
+	local function stopAutoClick()
+		utilityState.autoClickEnabled = false
+		utilityState.autoClickToken += 1
+		updateAutoClickButton()
+	end
+
+	local function startAutoClick()
+		local token = utilityState.autoClickToken + 1
+		utilityState.autoClickToken = token
+		utilityState.autoClickEnabled = true
+		updateAutoClickButton()
+
+		task.spawn(function()
+			while not destroyed and utilityState.autoClickEnabled and utilityState.autoClickToken == token do
+				performAutoClick()
+
+				local waitTime = getAutoClickInterval()
+				local elapsed = 0
+				while elapsed < waitTime and not destroyed and utilityState.autoClickEnabled and utilityState.autoClickToken == token do
+					local step = math.min(0.25, waitTime - elapsed)
+					task.wait(step)
+					elapsed += step
+				end
+			end
+		end)
 	end
 
 	local function setFlyEnabled(enabled)
@@ -748,8 +880,12 @@ local function bootstrap()
 		xBox.Text = ""
 		yBox.Text = ""
 		zBox.Text = ""
+		stopAutoClick()
+		utilityState.antiAfkEnabled = true
+		autoClickBox.Text = tostring(utilityState.autoClickInterval)
 		setFlyEnabled(false)
 		setNoclipEnabled(false)
+		updateAntiAfkButton()
 		setStatus("Execute di-reset.", false)
 		updateSavedSectionHeight()
 	end
@@ -760,6 +896,7 @@ local function bootstrap()
 		end
 
 		destroyed = true
+		stopAutoClick()
 		setFlyEnabled(false)
 
 		for _, connection in ipairs(connections) do
@@ -953,6 +1090,27 @@ local function bootstrap()
 		addSavedCoordinate(rootPart.Position)
 	end)
 
+	connect(antiAfkButton.MouseButton1Click, function()
+		utilityState.antiAfkEnabled = not utilityState.antiAfkEnabled
+		updateAntiAfkButton()
+		setStatus(utilityState.antiAfkEnabled and "Anti AFK aktif." or "Anti AFK dimatikan.", false)
+		sendNotification(utilityState.antiAfkEnabled and "Anti AFK aktif" or "Anti AFK nonaktif")
+	end)
+
+	connect(autoClickButton.MouseButton1Click, function()
+		local interval = getAutoClickInterval()
+		if utilityState.autoClickEnabled then
+			stopAutoClick()
+			setStatus("Auto click dimatikan.", false)
+			sendNotification("Auto click nonaktif")
+			return
+		end
+
+		startAutoClick()
+		setStatus(string.format("Auto click aktif. Interval %.1f detik.", interval), false)
+		sendNotification(string.format("Auto click aktif (%.1f detik)", interval))
+	end)
+
 	connect(restartButton.MouseButton1Click, function()
 		resetUtility()
 	end)
@@ -1044,6 +1202,18 @@ local function bootstrap()
 		end
 	end)
 
+	connect(localPlayer.Idled, function()
+		if destroyed or not utilityState.antiAfkEnabled then
+			return
+		end
+
+		local camera = workspace.CurrentCamera
+		VirtualUser:CaptureController()
+		VirtualUser:Button2Down(Vector2.zero, camera and camera.CFrame or CFrame.new())
+		task.wait(0.1)
+		VirtualUser:Button2Up(Vector2.zero, camera and camera.CFrame or CFrame.new())
+	end)
+
 	connect(workspace:GetPropertyChangedSignal("CurrentCamera"), resizeResponsive)
 	connect(savedList:GetPropertyChangedSignal("AbsoluteContentSize"), updateSavedSectionHeight)
 	connect(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
@@ -1128,6 +1298,8 @@ local function bootstrap()
 	updateNoclipButton()
 	updateLockHeightButton()
 	updateDiveBelowButton()
+	updateAntiAfkButton()
+	updateAutoClickButton()
 	setPanelVisible(false)
 end
 
