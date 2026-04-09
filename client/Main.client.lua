@@ -37,7 +37,7 @@ local function bootstrap()
 	local terrainProbeDistance = 512
 	local analogDeadzone = 0.18
 	local panelWidth = isTouchDevice and 336 or 320
-	local panelHeight = isTouchDevice and 388 or 404
+	local panelHeight = isTouchDevice and 356 or 404
 
 	local connections = {}
 	local destroyed = false
@@ -494,8 +494,8 @@ local function bootstrap()
 
 	local touchControls = Instance.new("Frame")
 	touchControls.Name = "TouchControls"
-	touchControls.Size = UDim2.fromOffset(118, 116)
-	touchControls.Position = UDim2.new(1, -130, 1, -136)
+	touchControls.Size = UDim2.fromOffset(58, 174)
+	touchControls.Position = UDim2.new(1, -138, 1, -250)
 	touchControls.BackgroundTransparency = 1
 	touchControls.Visible = false
 	touchControls.Parent = screenGui
@@ -521,8 +521,9 @@ local function bootstrap()
 		return button
 	end
 
-	local touchUp = createTouchButton("TouchUp", "+", UDim2.fromOffset(58, 0))
-	local touchDown = createTouchButton("TouchDown", "-", UDim2.fromOffset(58, 58))
+	local touchDive = createTouchButton("TouchDive", "D", UDim2.fromOffset(0, 0))
+	local touchUp = createTouchButton("TouchUp", "+", UDim2.fromOffset(0, 58))
+	local touchDown = createTouchButton("TouchDown", "-", UDim2.fromOffset(0, 116))
 
 	local function updateContentCanvas()
 		content.Size = UDim2.new(1, -6, 0, listLayout.AbsoluteContentSize.Y)
@@ -550,6 +551,8 @@ local function bootstrap()
 	local function updateDiveBelowButton()
 		diveBelowButton.Text = flyState.diveBelowEnabled and "ON" or "OFF"
 		diveBelowButton.BackgroundColor3 = flyState.diveBelowEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(120, 52, 52)
+		touchDive.Text = flyState.diveBelowEnabled and "ON" or "D"
+		touchDive.BackgroundColor3 = flyState.diveBelowEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(18, 24, 34)
 	end
 
 	local function setStatus(text, isError)
@@ -585,13 +588,13 @@ local function bootstrap()
 		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 		local compact = viewport.X <= 820 or viewport.Y <= 620 or isTouchDevice
 		local targetWidth = compact and 336 or 320
-		local targetHeight = compact and 388 or 404
-		local safeHeight = math.min(targetHeight, math.max(300, viewport.Y - 28))
+		local targetHeight = compact and 356 or 404
+		local safeHeight = math.min(targetHeight, math.max(280, viewport.Y - 42))
 
 		panel.Size = UDim2.fromOffset(targetWidth, safeHeight)
 		panel.Position = clampToViewport(panel.Position, panel.Size, viewport)
 		toggleButton.Position = clampToViewport(toggleButton.Position, toggleButton.Size, viewport)
-		touchControls.Position = compact and UDim2.new(1, -130, 1, -136) or UDim2.new(1, -136, 1, -144)
+		touchControls.Position = compact and UDim2.new(1, -138, 1, -250) or UDim2.new(1, -144, 1, -256)
 	end
 
 	local function getActiveLockHeightOffset()
@@ -911,6 +914,28 @@ local function bootstrap()
 				end
 			end)
 		end
+	end)
+
+	connect(touchDive.MouseButton1Click, function()
+		if not flyState.enabled then
+			setStatus("Aktifkan fly dulu untuk memakai dive below.", true)
+			return
+		end
+
+		getActiveLockHeightOffset()
+		flyState.diveBelowEnabled = not flyState.diveBelowEnabled
+		if flyState.diveBelowEnabled then
+			local character = localPlayer.Character
+			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			local diveHeight = rootPart and select(2, getGroundLockHeight(rootPart, character))
+			flyState.targetHeight = diveHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
+		end
+
+		updateDiveBelowButton()
+		setStatus(
+			flyState.diveBelowEnabled and string.format("Dive below aktif di %.1f stud di bawah permukaan.", flyState.lockHeightOffset) or "Dive below dimatikan.",
+			false
+		)
 	end)
 
 	connect(UserInputService.InputBegan, function(input, processed)
