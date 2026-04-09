@@ -37,7 +37,7 @@ local function bootstrap()
 	local maxVerticalSpeed = 56
 	local defaultLockHeightOffset = 25
 	local terrainProbeDistance = 512
-	local analogDeadzone = 0.18
+	local analogDeadzone = 0.12
 	local panelWidth = isTouchDevice and 336 or 320
 	local panelHeight = isTouchDevice and 356 or 404
 
@@ -127,6 +127,24 @@ local function bootstrap()
 			if ok and typeof(moveVector) == "Vector3" then
 				return moveVector
 			end
+		end
+
+		return Vector3.zero
+	end
+
+	local function getCameraRelativeMoveVector(camera, inputVector)
+		local forward = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+		local right = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
+		if forward.Magnitude > 0 then
+			forward = forward.Unit
+		end
+		if right.Magnitude > 0 then
+			right = right.Unit
+		end
+
+		local worldMove = right * inputVector.X - forward * inputVector.Z
+		if worldMove.Magnitude > 0 then
+			return worldMove.Unit
 		end
 
 		return Vector3.zero
@@ -684,6 +702,7 @@ local function bootstrap()
 		local rootPart = getRootPart()
 		if humanoid then
 			humanoid.PlatformStand = enabled
+			humanoid.AutoRotate = not enabled
 		end
 
 		if enabled and rootPart then
@@ -696,6 +715,7 @@ local function bootstrap()
 
 		if not enabled and rootPart then
 			rootPart.AssemblyLinearVelocity = Vector3.zero
+			rootPart.AssemblyAngularVelocity = Vector3.zero
 		end
 
 		updateFlyButton()
@@ -1064,6 +1084,7 @@ local function bootstrap()
 			local camera = workspace.CurrentCamera
 			if rootPart and humanoid and camera then
 				humanoid.PlatformStand = true
+				humanoid.AutoRotate = false
 				flyState.targetHeight = flyState.targetHeight or rootPart.Position.Y
 
 				local verticalInput = movementState.up - movementState.down
@@ -1084,7 +1105,7 @@ local function bootstrap()
 				local moveDirection = getPlayerMoveVector()
 				local horizontalMoveVector
 				if moveDirection.Magnitude > analogDeadzone then
-					horizontalMoveVector = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+					horizontalMoveVector = getCameraRelativeMoveVector(camera, moveDirection)
 				else
 					horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
 						* (movementState.forward - movementState.backward)
@@ -1102,9 +1123,9 @@ local function bootstrap()
 				local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
 				local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
 				flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
+				rootPart.AssemblyAngularVelocity = Vector3.zero
 				if horizontalMoveVector == Vector3.zero then
 					flyState.velocity = Vector3.new(0, flyState.velocity.Y, 0)
-					rootPart.AssemblyAngularVelocity = Vector3.zero
 				end
 				rootPart.AssemblyLinearVelocity = flyState.velocity
 
