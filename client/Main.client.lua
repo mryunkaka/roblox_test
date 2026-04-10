@@ -34,13 +34,15 @@ local function bootstrap()
 	local playerControls = nil
 	local attackRemote = nil
 	local defaultFlySpeed = 64
-	local flySmoothing = 0.18
 	local altitudeAdjustSpeed = 42
 	local altitudeResponse = 7
 	local maxVerticalSpeed = 56
 	local defaultLockHeightOffset = 25
 	local terrainProbeDistance = 512
 	local analogDeadzone = 0.12
+	local groundProbeInterval = 0.08
+	local noclipRefreshInterval = 0.12
+	local hudRefreshInterval = 0.1
 	local panelWidth = isTouchDevice and 336 or 320
 	local panelHeight = isTouchDevice and 356 or 404
 
@@ -48,6 +50,17 @@ local function bootstrap()
 	local destroyed = false
 	local savedCoordinates = {}
 	local originCoordinate = nil
+	local characterPartsCache = {}
+	local raycastParams = RaycastParams.new()
+	local probeState = {
+		expiresAt = 0,
+		lockHeight = nil,
+		diveHeight = nil,
+	}
+	local loopState = {
+		nextHudRefreshAt = 0,
+		nextNoclipRefreshAt = 0,
+	}
 	local movementState = {
 		forward = 0,
 		backward = 0,
@@ -78,6 +91,9 @@ local function bootstrap()
 		lastAutoClickSource = nil,
 		lastMessage = "Belum ada log klik.",
 	}
+
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.IgnoreWater = false
 
 	pcall(function()
 		local remotes = ReplicatedStorage:WaitForChild("Remotes", 3)
@@ -113,20 +129,60 @@ local function bootstrap()
 		return character and character:FindFirstChildOfClass("Humanoid")
 	end
 
-	local function getCharacterParts()
-		local character = localPlayer.Character
+	local function rebuildCharacterPartsCache(character)
+		table.clear(characterPartsCache)
 		if not character then
-			return {}
+			return
 		end
 
-		local parts = {}
 		for _, descendant in ipairs(character:GetDescendants()) do
 			if descendant:IsA("BasePart") then
-				table.insert(parts, descendant)
+				table.insert(characterPartsCache, descendant)
 			end
 		end
+	end
 
-		return parts
+	local function getCharacterParts()
+		return characterPartsCache
+	end
+
+	local function applyNoclipState()
+		local canCollide = not flyState.noclipEnabled
+		for _, part in ipairs(characterPartsCache) do
+			if part.Parent and part.Name ~= "HumanoidRootPart" then
+				part.CanCollide = canCollide
+			end
+		end
+	end
+
+	local function refreshGroundProbe(rootPart, character)
+		local now = os.clock()
+		if now < probeState.expiresAt then
+			return probeState.lockHeight, probeState.diveHeight
+		end
+
+		raycastParams.FilterDescendantsInstances = {character}
+
+		local rayOrigin = rootPart.Position + Vector3.new(0, 6, 0)
+		local rayDirection = Vector3.new(0, -terrainProbeDistance, 0)
+		local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+		local offset = flyState.lockHeightOffset
+		if result then
+			probeState.lockHeight = result.Position.Y + offset
+			probeState.diveHeight = result.Position.Y - offset
+		else
+			probeState.lockHeight = nil
+			probeState.diveHeight = nil
+		end
+
+		probeState.expiresAt = now + groundProbeInterval
+		return probeState.lockHeight, probeState.diveHeight
+	end
+
+	local function invalidateGroundProbe()
+		probeState.expiresAt = 0
+		probeState.lockHeight = nil
+		probeState.diveHeight = nil
 	end
 
 	local function getPlayerMoveVector()
@@ -956,6 +1012,7 @@ local function bootstrap()
 		local parsed = sanitizeNumber(lockHeightBox.Text)
 		if parsed and parsed > 0 then
 			flyState.lockHeightOffset = parsed
+			invalidateGroundProbe()
 			return parsed
 		end
 
@@ -1050,6 +1107,7 @@ local function bootstrap()
 		flyState.enabled = enabled
 		flyState.velocity = Vector3.zero
 		getFlySpeed()
+		invalidateGroundProbe()
 
 		local humanoid = getHumanoid()
 		local rootPart = getRootPart()
@@ -1078,30 +1136,14 @@ local function bootstrap()
 
 	local function setNoclipEnabled(enabled)
 		flyState.noclipEnabled = enabled
-		if not enabled then
-			for _, part in ipairs(getCharacterParts()) do
-				if part.Name ~= "HumanoidRootPart" then
-					part.CanCollide = true
-				end
-			end
-		end
+		applyNoclipState()
+		loopState.nextNoclipRefreshAt = 0
 		updateNoclipButton()
 	end
 
 	local function getGroundLockHeight(rootPart, character)
-		local raycastParams = RaycastParams.new()
-		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = {character}
-		raycastParams.IgnoreWater = false
-
-		local rayOrigin = rootPart.Position + Vector3.new(0, 6, 0)
-		local rayDirection = Vector3.new(0, -terrainProbeDistance, 0)
-		local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-		if not result then
-			return nil
-		end
-
-		return result.Position.Y + getActiveLockHeightOffset(), result.Position.Y - getActiveLockHeightOffset()
+		getActiveLockHeightOffset()
+		return refreshGroundProbe(rootPart, character)
 	end
 
 	local function resetUtility()
@@ -1298,6 +1340,19 @@ local function bootstrap()
 		addSavedCoordinate(rootPart.Position)
 	end)
 
+	connect(flySpeedBox.FocusLost, function()
+		getFlySpeed()
+	end)
+
+	connect(lockHeightBox.FocusLost, function()
+		getActiveLockHeightOffset()
+	end)
+
+	connect(autoClickBox.FocusLost, function()
+		getAutoClickInterval()
+		updateAutoClickCooldownLabel()
+	end)
+
 	connect(antiAfkButton.MouseButton1Click, function()
 		utilityState.antiAfkEnabled = not utilityState.antiAfkEnabled
 		updateAntiAfkButton()
@@ -1360,6 +1415,9 @@ local function bootstrap()
 
 	connect(localPlayer.CharacterAdded, function(character)
 		character:WaitForChild("HumanoidRootPart")
+		rebuildCharacterPartsCache(character)
+		applyNoclipState()
+		invalidateGroundProbe()
 		captureOriginCoordinate()
 		refreshSavedCoordinateRows()
 
@@ -1425,15 +1483,16 @@ local function bootstrap()
 	connect(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
 
 	connect(RunService.RenderStepped, function(deltaTime)
-		updateAutoClickCooldownLabel()
-		updateInputLogLabel()
+		local now = os.clock()
+		if now >= loopState.nextHudRefreshAt then
+			loopState.nextHudRefreshAt = now + hudRefreshInterval
+			updateAutoClickCooldownLabel()
+			updateInputLogLabel()
+		end
 
-		if flyState.noclipEnabled then
-			for _, part in ipairs(getCharacterParts()) do
-				if part.Name ~= "HumanoidRootPart" then
-					part.CanCollide = false
-				end
-			end
+		if flyState.noclipEnabled and now >= loopState.nextNoclipRefreshAt then
+			loopState.nextNoclipRefreshAt = now + noclipRefreshInterval
+			applyNoclipState()
 		end
 
 		if destroyed or not flyState.enabled then
@@ -1475,7 +1534,6 @@ local function bootstrap()
 						* (movementState.right - movementState.left)
 				end
 
-				local flySpeed = getFlySpeed()
 				if horizontalMoveVector.Magnitude > 0 then
 					horizontalMoveVector = horizontalMoveVector.Unit
 				else
@@ -1484,8 +1542,9 @@ local function bootstrap()
 
 				local altitudeError = flyState.targetHeight - rootPart.Position.Y
 				local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
-				local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
-				flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
+				local targetVelocity = horizontalMoveVector * flyState.speed + Vector3.yAxis * verticalVelocity
+				local blendAlpha = math.clamp(deltaTime * (horizontalMoveVector == Vector3.zero and 24 or 14), 0, 1)
+				flyState.velocity = flyState.velocity:Lerp(targetVelocity, blendAlpha)
 				rootPart.AssemblyAngularVelocity = Vector3.zero
 				if horizontalMoveVector == Vector3.zero then
 					flyState.velocity = Vector3.new(0, flyState.velocity.Y, 0)
@@ -1501,6 +1560,8 @@ local function bootstrap()
 		end
 	end)
 
+	rebuildCharacterPartsCache(localPlayer.Character)
+	applyNoclipState()
 	task.defer(function()
 		if not destroyed then
 			refreshSavedCoordinateRows()
