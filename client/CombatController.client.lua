@@ -9,6 +9,12 @@ local attackRemote = remotes:WaitForChild("RequestAttack")
 
 local lastAttackAt = 0
 local cooldown = 0.55
+local autoClickGraceWindow = 0.35
+
+_G.NightsForestInputLog = _G.NightsForestInputLog or {
+    lastAutoClickAt = 0,
+    lastAutoClickSource = nil,
+}
 
 local function hasGuiAtPosition(container, x, y)
     local ok, objects = pcall(function()
@@ -38,11 +44,12 @@ end
 local function requestAttack()
     local now = os.clock()
     if now - lastAttackAt < cooldown then
-        return
+        return false
     end
 
     lastAttackAt = now
     attackRemote:FireServer()
+    return true
 end
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -52,9 +59,33 @@ UserInputService.InputBegan:Connect(function(input, processed)
 
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         if isClickOnGui() then
+            warn("[CombatController] Klik diblokir karena GUI di bawah cursor.")
             return
         end
 
-        requestAttack()
+        local now = os.clock()
+        local inputLog = _G.NightsForestInputLog
+        local sourceLabel
+        if inputLog and now - (inputLog.lastAutoClickAt or 0) <= autoClickGraceWindow then
+            sourceLabel = string.format(
+                "auto click (%s)",
+                tostring(inputLog.lastAutoClickSource or "unknown")
+            )
+        else
+            sourceLabel = string.format(
+                "non-autoclick input=%s keyCode=%s position=(%d,%d)",
+                tostring(input.UserInputType),
+                tostring(input.KeyCode),
+                input.Position.X,
+                input.Position.Y
+            )
+        end
+
+        local fired = requestAttack()
+        warn(string.format(
+            "[CombatController] RequestAttack %s: %s",
+            fired and "terkirim" or "tertahan cooldown",
+            sourceLabel
+        ))
     end
 end)

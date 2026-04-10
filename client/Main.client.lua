@@ -69,6 +69,10 @@ local function bootstrap()
 		autoClickToken = 0,
 		nextAutoClickAt = 0,
 	}
+	_G.NightsForestInputLog = _G.NightsForestInputLog or {
+		lastAutoClickAt = 0,
+		lastAutoClickSource = nil,
+	}
 
 	local flyKeys = {
 		[Enum.KeyCode.W] = "forward",
@@ -852,6 +856,13 @@ local function bootstrap()
 		local camera = workspace.CurrentCamera
 		local viewport = camera and camera.ViewportSize or Vector2.new(0, 0)
 		local clickPosition = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
+		local inputLog = _G.NightsForestInputLog
+
+		if inputLog then
+			inputLog.lastAutoClickAt = os.clock()
+			inputLog.lastAutoClickSource = "Main.client.lua:auto_click"
+		end
+		warn("[Main] Auto click men-trigger klik tengah layar.")
 
 		VirtualUser:CaptureController()
 		VirtualUser:Button1Down(clickPosition, camera and camera.CFrame or CFrame.new())
@@ -1312,26 +1323,38 @@ local function bootstrap()
 				end
 
 				local moveInput = getPlayerMoveVector()
-				local horizontalMoveVector
+				local moveVector
+				local targetHeightLocked = flyState.diveBelowEnabled or flyState.lockHeightEnabled or verticalInput ~= 0
 				if moveInput.Magnitude > analogDeadzone then
-					local humanoidMove = humanoid.MoveDirection
-					horizontalMoveVector = Vector3.new(humanoidMove.X, 0, humanoidMove.Z)
+					local cameraLook = camera.CFrame.LookVector
+					local cameraRight = camera.CFrame.RightVector
+					moveVector = cameraLook * -moveInput.Z + cameraRight * moveInput.X
+					if moveVector.Magnitude > 0 then
+						moveVector = moveVector.Unit
+					else
+						moveVector = Vector3.zero
+					end
 				else
-					horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+					moveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
 						* (movementState.forward - movementState.backward)
 						+ Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
 						* (movementState.right - movementState.left)
-				end
-
-				if horizontalMoveVector.Magnitude > 0 then
-					horizontalMoveVector = horizontalMoveVector.Unit
-				else
-					horizontalMoveVector = Vector3.zero
+					if moveVector.Magnitude > 0 then
+						moveVector = moveVector.Unit
+					else
+						moveVector = Vector3.zero
+					end
 				end
 
 				local altitudeError = flyState.targetHeight - rootPart.Position.Y
 				local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
-				local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
+				if moveInput.Magnitude > analogDeadzone and not targetHeightLocked then
+					verticalVelocity = moveVector.Y * flySpeed
+					flyState.targetHeight = rootPart.Position.Y
+				end
+
+				local horizontalMoveVector = Vector3.new(moveVector.X, 0, moveVector.Z)
+				local targetVelocity = Vector3.new(moveVector.X, 0, moveVector.Z) * flySpeed + Vector3.yAxis * verticalVelocity
 				flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
 				rootPart.AssemblyAngularVelocity = Vector3.zero
 				if horizontalMoveVector == Vector3.zero then
