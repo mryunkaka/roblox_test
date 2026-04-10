@@ -14,6 +14,7 @@ local autoClickGraceWindow = 0.35
 _G.NightsForestInputLog = _G.NightsForestInputLog or {
     lastAutoClickAt = 0,
     lastAutoClickSource = nil,
+    lastMessage = "Belum ada log klik.",
 }
 
 local function hasGuiAtPosition(container, x, y)
@@ -59,7 +60,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         if isClickOnGui() then
-            warn("[CombatController] Klik diblokir karena GUI di bawah cursor.")
+            _G.NightsForestInputLog.lastMessage = "klik diblokir karena GUI"
+            print("[CombatController] Klik diblokir karena GUI di bawah cursor.")
             return
         end
 
@@ -82,10 +84,12 @@ UserInputService.InputBegan:Connect(function(input, processed)
         end
 
         local fired = requestAttack()
-        warn(string.format(
+        local message = string.format(
             "[CombatController] RequestAttack %s: %s",
             fired and "terkirim" or "tertahan cooldown",
             sourceLabel
-        ))
+        )
+        _G.NightsForestInputLog.lastMessage = message
+        print(message)
     end
 end)

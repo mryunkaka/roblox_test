@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
@@ -31,7 +32,8 @@ local function bootstrap()
 	local isTouchDevice = UserInputService.TouchEnabled
 	local playerModule = nil
 	local playerControls = nil
-	local flySpeed = 64
+	local attackRemote = nil
+	local defaultFlySpeed = 64
 	local flySmoothing = 0.18
 	local altitudeAdjustSpeed = 42
 	local altitudeResponse = 7
@@ -45,6 +47,7 @@ local function bootstrap()
 	local connections = {}
 	local destroyed = false
 	local savedCoordinates = {}
+	local originCoordinate = nil
 	local movementState = {
 		forward = 0,
 		backward = 0,
@@ -60,6 +63,7 @@ local function bootstrap()
 		lockHeightEnabled = false,
 		diveBelowEnabled = false,
 		noclipEnabled = false,
+		speed = defaultFlySpeed,
 		lockHeightOffset = defaultLockHeightOffset,
 	}
 	local utilityState = {
@@ -72,7 +76,13 @@ local function bootstrap()
 	_G.NightsForestInputLog = _G.NightsForestInputLog or {
 		lastAutoClickAt = 0,
 		lastAutoClickSource = nil,
+		lastMessage = "Belum ada log klik.",
 	}
+
+	pcall(function()
+		local remotes = ReplicatedStorage:WaitForChild("Remotes", 3)
+		attackRemote = remotes and remotes:FindFirstChild("RequestAttack")
+	end)
 
 	local flyKeys = {
 		[Enum.KeyCode.W] = "forward",
@@ -359,7 +369,7 @@ local function bootstrap()
 		end)
 	end
 
-	local flySection = createSection(isTouchDevice and 126 or 118)
+	local flySection = createSection(isTouchDevice and 160 or 150)
 	flySection.LayoutOrder = 1
 	flySection.Parent = content
 
@@ -399,9 +409,27 @@ local function bootstrap()
 	noclipButton.Font = Enum.Font.GothamBold
 	noclipButton.Parent = flySection
 
+	local flySpeedLabel = Instance.new("TextLabel")
+	flySpeedLabel.Size = UDim2.new(0, 100, 0, 18)
+	flySpeedLabel.Position = UDim2.fromOffset(12, 86)
+	flySpeedLabel.BackgroundTransparency = 1
+	flySpeedLabel.Text = "Fly Speed"
+	flySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+	flySpeedLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	flySpeedLabel.TextSize = 13
+	flySpeedLabel.Font = Enum.Font.GothamMedium
+	flySpeedLabel.Parent = flySection
+
+	local flySpeedBox = createInputBox("FlySpeedBox", "64")
+	flySpeedBox.Size = UDim2.fromOffset(70, 28)
+	flySpeedBox.Position = UDim2.fromOffset(114, 82)
+	flySpeedBox.Text = tostring(defaultFlySpeed)
+	flySpeedBox.TextSize = 13
+	flySpeedBox.Parent = flySection
+
 	local lockHeightLabel = Instance.new("TextLabel")
 	lockHeightLabel.Size = UDim2.new(0, 100, 0, 18)
-	lockHeightLabel.Position = UDim2.fromOffset(12, 86)
+	lockHeightLabel.Position = UDim2.fromOffset(12, 120)
 	lockHeightLabel.BackgroundTransparency = 1
 	lockHeightLabel.Text = "Lock Height"
 	lockHeightLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -412,21 +440,21 @@ local function bootstrap()
 
 	local lockHeightBox = createInputBox("LockHeightBox", "25")
 	lockHeightBox.Size = UDim2.fromOffset(70, 28)
-	lockHeightBox.Position = UDim2.fromOffset(114, 82)
+	lockHeightBox.Position = UDim2.fromOffset(114, 116)
 	lockHeightBox.Text = tostring(defaultLockHeightOffset)
 	lockHeightBox.TextSize = 13
 	lockHeightBox.Parent = flySection
 
 	local lockHeightButton = createActionButton("LockHeightToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	lockHeightButton.Size = UDim2.fromOffset(82, 28)
-	lockHeightButton.Position = UDim2.new(1, -94, 0, 82)
+	lockHeightButton.Position = UDim2.new(1, -94, 0, 116)
 	lockHeightButton.TextSize = 13
 	lockHeightButton.Font = Enum.Font.GothamBold
 	lockHeightButton.Parent = flySection
 
 	local diveBelowLabel = Instance.new("TextLabel")
 	diveBelowLabel.Size = UDim2.new(0, 100, 0, 18)
-	diveBelowLabel.Position = UDim2.fromOffset(12, 120)
+	diveBelowLabel.Position = UDim2.fromOffset(12, 154)
 	diveBelowLabel.BackgroundTransparency = 1
 	diveBelowLabel.Text = "Dive Below"
 	diveBelowLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -437,7 +465,7 @@ local function bootstrap()
 
 	local diveBelowButton = createActionButton("DiveBelowToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	diveBelowButton.Size = UDim2.fromOffset(82, 28)
-	diveBelowButton.Position = UDim2.new(1, -94, 0, 116)
+	diveBelowButton.Position = UDim2.new(1, -94, 0, 150)
 	diveBelowButton.TextSize = 13
 	diveBelowButton.Font = Enum.Font.GothamBold
 	diveBelowButton.Parent = flySection
@@ -546,7 +574,7 @@ local function bootstrap()
 	savedList.SortOrder = Enum.SortOrder.LayoutOrder
 	savedList.Parent = savedContainer
 
-	local utilitySection = createSection(154)
+	local utilitySection = createSection(186)
 	utilitySection.LayoutOrder = 4
 	utilitySection.Parent = content
 
@@ -614,6 +642,19 @@ local function bootstrap()
 	autoClickCooldownLabel.TextSize = 12
 	autoClickCooldownLabel.Font = Enum.Font.Gotham
 	autoClickCooldownLabel.Parent = utilitySection
+
+	local inputLogLabel = Instance.new("TextLabel")
+	inputLogLabel.Size = UDim2.new(1, -24, 0, 28)
+	inputLogLabel.Position = UDim2.fromOffset(12, 158)
+	inputLogLabel.BackgroundTransparency = 1
+	inputLogLabel.Text = "Log klik: belum ada."
+	inputLogLabel.TextWrapped = true
+	inputLogLabel.TextXAlignment = Enum.TextXAlignment.Left
+	inputLogLabel.TextYAlignment = Enum.TextYAlignment.Top
+	inputLogLabel.TextColor3 = Color3.fromRGB(172, 182, 196)
+	inputLogLabel.TextSize = 11
+	inputLogLabel.Font = Enum.Font.Gotham
+	inputLogLabel.Parent = utilitySection
 
 	local executeSection = createSection(96)
 	executeSection.LayoutOrder = 5
@@ -710,6 +751,12 @@ local function bootstrap()
 		autoClickCooldownLabel.Text = string.format("Cooldown: %.1f detik", remaining)
 	end
 
+	local function updateInputLogLabel()
+		local inputLog = _G.NightsForestInputLog
+		local message = inputLog and inputLog.lastMessage or "Belum ada log klik."
+		inputLogLabel.Text = "Log klik: " .. tostring(message)
+	end
+
 	local function updateFlyButton()
 		setButtonState(flyButton, flyState.enabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
 		touchControls.Visible = isTouchDevice and flyState.enabled and not destroyed
@@ -748,6 +795,20 @@ local function bootstrap()
 		zBox.Text = string.format("%.2f", position.Z)
 	end
 
+	local function captureOriginCoordinate()
+		if originCoordinate then
+			return originCoordinate
+		end
+
+		local rootPart = getRootPart()
+		if not rootPart then
+			return nil
+		end
+
+		originCoordinate = rootPart.Position
+		return originCoordinate
+	end
+
 	local function teleportToPosition(position)
 		local rootPart = getRootPart()
 		if not rootPart then
@@ -765,6 +826,36 @@ local function bootstrap()
 		return true
 	end
 
+	local function performAntiAfkMovement()
+		local character = localPlayer.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+		local camera = workspace.CurrentCamera
+		if not humanoid or not rootPart or not camera then
+			return
+		end
+
+		local forward = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+		local right = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
+		if forward.Magnitude <= 0 then
+			forward = Vector3.zAxis
+		else
+			forward = forward.Unit
+		end
+		if right.Magnitude <= 0 then
+			right = Vector3.xAxis
+		else
+			right = right.Unit
+		end
+
+		-- Gerakan pendek 4 arah untuk meniru stick analog.
+		for _, direction in ipairs({forward, right, -forward, -right}) do
+			humanoid:Move(direction, false)
+			task.wait(0.12)
+		end
+		humanoid:Move(Vector3.zero, false)
+	end
+
 	local function refreshSavedCoordinateRows()
 		for _, child in ipairs(savedContainer:GetChildren()) do
 			if not child:IsA("UIListLayout") then
@@ -772,12 +863,43 @@ local function bootstrap()
 			end
 		end
 
+		local startPoint = captureOriginCoordinate()
+		if startPoint then
+			local originRow = Instance.new("Frame")
+			originRow.Name = "OriginCoordinate"
+			originRow.Size = UDim2.new(1, 0, 0, 34)
+			originRow.BackgroundTransparency = 1
+			originRow.LayoutOrder = 0
+			originRow.Parent = savedContainer
+
+			local originLabel = Instance.new("TextLabel")
+			originLabel.Size = UDim2.new(1, -64, 1, 0)
+			originLabel.BackgroundTransparency = 1
+			originLabel.Text = string.format("Start Point  |  %.1f, %.1f, %.1f", startPoint.X, startPoint.Y, startPoint.Z)
+			originLabel.TextXAlignment = Enum.TextXAlignment.Left
+			originLabel.TextColor3 = Color3.fromRGB(255, 225, 150)
+			originLabel.TextSize = 12
+			originLabel.Font = Enum.Font.GothamMedium
+			originLabel.Parent = originRow
+
+			local backButton = createActionButton("BackToStart", "Back", Color3.fromRGB(188, 132, 42))
+			backButton.Size = UDim2.fromOffset(54, 28)
+			backButton.Position = UDim2.new(1, -54, 0.5, -14)
+			backButton.Parent = originRow
+
+			connect(backButton.MouseButton1Click, function()
+				fillCoordinateBoxes(startPoint)
+				teleportToPosition(startPoint)
+				setStatus("Kembali ke Start Point.", false)
+			end)
+		end
+
 		for index, position in ipairs(savedCoordinates) do
 			local row = Instance.new("Frame")
 			row.Name = "Coord" .. index
 			row.Size = UDim2.new(1, 0, 0, 34)
 			row.BackgroundTransparency = 1
-			row.LayoutOrder = index
+			row.LayoutOrder = index + 1
 			row.Parent = savedContainer
 
 			local rowLabel = Instance.new("TextLabel")
@@ -841,6 +963,17 @@ local function bootstrap()
 		return flyState.lockHeightOffset
 	end
 
+	local function getFlySpeed()
+		local parsed = sanitizeNumber(flySpeedBox.Text)
+		if parsed and parsed > 0 then
+			flyState.speed = parsed
+			return parsed
+		end
+
+		flySpeedBox.Text = string.format("%.0f", flyState.speed)
+		return flyState.speed
+	end
+
 	local function getAutoClickInterval()
 		local parsed = sanitizeNumber(autoClickBox.Text)
 		if parsed and parsed > 0 then
@@ -861,8 +994,13 @@ local function bootstrap()
 		if inputLog then
 			inputLog.lastAutoClickAt = os.clock()
 			inputLog.lastAutoClickSource = "Main.client.lua:auto_click"
+			inputLog.lastMessage = "auto click men-trigger RequestAttack"
 		end
-		warn("[Main] Auto click men-trigger klik tengah layar.")
+		print("[Main] Auto click men-trigger RequestAttack.")
+
+		if attackRemote then
+			attackRemote:FireServer()
+		end
 
 		VirtualUser:CaptureController()
 		VirtualUser:Button1Down(clickPosition, camera and camera.CFrame or CFrame.new())
@@ -911,6 +1049,7 @@ local function bootstrap()
 	local function setFlyEnabled(enabled)
 		flyState.enabled = enabled
 		flyState.velocity = Vector3.zero
+		getFlySpeed()
 
 		local humanoid = getHumanoid()
 		local rootPart = getRootPart()
@@ -976,6 +1115,8 @@ local function bootstrap()
 		xBox.Text = ""
 		yBox.Text = ""
 		zBox.Text = ""
+		flyState.speed = defaultFlySpeed
+		flySpeedBox.Text = tostring(defaultFlySpeed)
 		stopAutoClick()
 		utilityState.antiAfkEnabled = true
 		autoClickBox.Text = tostring(utilityState.autoClickInterval)
@@ -1219,6 +1360,8 @@ local function bootstrap()
 
 	connect(localPlayer.CharacterAdded, function(character)
 		character:WaitForChild("HumanoidRootPart")
+		captureOriginCoordinate()
+		refreshSavedCoordinateRows()
 
 		if flyState.enabled then
 			task.defer(function()
@@ -1274,10 +1417,7 @@ local function bootstrap()
 			return
 		end
 
-		VirtualUser:CaptureController()
-		VirtualUser:SetKeyDown("0x57")
-		task.wait(0.1)
-		VirtualUser:SetKeyUp("0x57")
+		performAntiAfkMovement()
 	end)
 
 	connect(workspace:GetPropertyChangedSignal("CurrentCamera"), resizeResponsive)
@@ -1286,6 +1426,7 @@ local function bootstrap()
 
 	connect(RunService.RenderStepped, function(deltaTime)
 		updateAutoClickCooldownLabel()
+		updateInputLogLabel()
 
 		if flyState.noclipEnabled then
 			for _, part in ipairs(getCharacterParts()) do
@@ -1323,38 +1464,27 @@ local function bootstrap()
 				end
 
 				local moveInput = getPlayerMoveVector()
-				local moveVector
-				local targetHeightLocked = flyState.diveBelowEnabled or flyState.lockHeightEnabled or verticalInput ~= 0
+				local horizontalMoveVector
 				if moveInput.Magnitude > analogDeadzone then
-					local cameraLook = camera.CFrame.LookVector
-					local cameraRight = camera.CFrame.RightVector
-					moveVector = cameraLook * -moveInput.Z + cameraRight * moveInput.X
-					if moveVector.Magnitude > 0 then
-						moveVector = moveVector.Unit
-					else
-						moveVector = Vector3.zero
-					end
+					local humanoidMove = humanoid.MoveDirection
+					horizontalMoveVector = Vector3.new(humanoidMove.X, 0, humanoidMove.Z)
 				else
-					moveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+					horizontalMoveVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
 						* (movementState.forward - movementState.backward)
 						+ Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
 						* (movementState.right - movementState.left)
-					if moveVector.Magnitude > 0 then
-						moveVector = moveVector.Unit
-					else
-						moveVector = Vector3.zero
-					end
+				end
+
+				local flySpeed = getFlySpeed()
+				if horizontalMoveVector.Magnitude > 0 then
+					horizontalMoveVector = horizontalMoveVector.Unit
+				else
+					horizontalMoveVector = Vector3.zero
 				end
 
 				local altitudeError = flyState.targetHeight - rootPart.Position.Y
 				local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
-				if moveInput.Magnitude > analogDeadzone and not targetHeightLocked then
-					verticalVelocity = moveVector.Y * flySpeed
-					flyState.targetHeight = rootPart.Position.Y
-				end
-
-				local horizontalMoveVector = Vector3.new(moveVector.X, 0, moveVector.Z)
-				local targetVelocity = Vector3.new(moveVector.X, 0, moveVector.Z) * flySpeed + Vector3.yAxis * verticalVelocity
+				local targetVelocity = horizontalMoveVector * flySpeed + Vector3.yAxis * verticalVelocity
 				flyState.velocity = flyState.velocity:Lerp(targetVelocity, flySmoothing)
 				rootPart.AssemblyAngularVelocity = Vector3.zero
 				if horizontalMoveVector == Vector3.zero then
@@ -1371,7 +1501,11 @@ local function bootstrap()
 		end
 	end)
 
-	updateSavedSectionHeight()
+	task.defer(function()
+		if not destroyed then
+			refreshSavedCoordinateRows()
+		end
+	end)
 	updateContentCanvas()
 	resizeResponsive()
 	updateFlyButton()
@@ -1381,6 +1515,7 @@ local function bootstrap()
 	updateAntiAfkButton()
 	updateAutoClickButton()
 	updateAutoClickCooldownLabel()
+	updateInputLogLabel()
 	setPanelVisible(false)
 end
 
