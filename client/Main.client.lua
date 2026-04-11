@@ -563,7 +563,7 @@ local function bootstrap()
 	flyInfoLabel.Font = Enum.Font.Gotham
 	flyInfoLabel.Parent = flySection
 
-	local teleportSection = createSection(148)
+	local teleportSection = createSection(238)
 	teleportSection.LayoutOrder = 2
 	teleportSection.Parent = content
 
@@ -606,9 +606,26 @@ local function bootstrap()
 	local zBox = createCoordinateBox("ZBox", "Z")
 	zBox.Parent = inputRow
 
+	local playerTargetBox = createInputBox("PlayerTargetBox", "Nama player / display name")
+	playerTargetBox.Size = UDim2.new(1, -24, 0, 30)
+	playerTargetBox.Position = UDim2.fromOffset(12, 82)
+	playerTargetBox.TextSize = 13
+	playerTargetBox.Parent = teleportSection
+
+	local playerHintLabel = Instance.new("TextLabel")
+	playerHintLabel.Size = UDim2.new(1, -24, 0, 16)
+	playerHintLabel.Position = UDim2.fromOffset(12, 116)
+	playerHintLabel.BackgroundTransparency = 1
+	playerHintLabel.Text = "TP Player pakai nama parsial. TP Friend pilih teman online pertama."
+	playerHintLabel.TextXAlignment = Enum.TextXAlignment.Left
+	playerHintLabel.TextColor3 = Color3.fromRGB(172, 182, 196)
+	playerHintLabel.TextSize = 11
+	playerHintLabel.Font = Enum.Font.Gotham
+	playerHintLabel.Parent = teleportSection
+
 	local statusLabel = Instance.new("TextLabel")
 	statusLabel.Size = UDim2.new(1, -24, 0, 18)
-	statusLabel.Position = UDim2.fromOffset(12, 82)
+	statusLabel.Position = UDim2.fromOffset(12, 136)
 	statusLabel.BackgroundTransparency = 1
 	statusLabel.Text = "Masukkan koordinat atau ambil posisi saat ini."
 	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -618,8 +635,8 @@ local function bootstrap()
 	statusLabel.Parent = teleportSection
 
 	local actionRow = Instance.new("Frame")
-	actionRow.Size = UDim2.new(1, -24, 0, 54)
-	actionRow.Position = UDim2.fromOffset(12, 102)
+	actionRow.Size = UDim2.new(1, -24, 0, 82)
+	actionRow.Position = UDim2.fromOffset(12, 160)
 	actionRow.BackgroundTransparency = 1
 	actionRow.Parent = teleportSection
 
@@ -640,6 +657,12 @@ local function bootstrap()
 
 	local saveCurrentButton = createActionButton("SaveCurrentButton", "Save Current", Color3.fromRGB(109, 77, 166))
 	saveCurrentButton.Parent = actionRow
+
+	local teleportPlayerButton = createActionButton("TeleportPlayerButton", "TP Player", Color3.fromRGB(56, 123, 164))
+	teleportPlayerButton.Parent = actionRow
+
+	local teleportFriendButton = createActionButton("TeleportFriendButton", "TP Friend", Color3.fromRGB(70, 133, 92))
+	teleportFriendButton.Parent = actionRow
 
 	local savedSection = createSection(74)
 	savedSection.LayoutOrder = 3
@@ -1021,6 +1044,77 @@ local function bootstrap()
 
 		setStatus("Teleport berhasil.", false)
 		return true
+	end
+
+	local function getPlayerRootPart(player)
+		local character = player and player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+		if not humanoid or humanoid.Health <= 0 or not rootPart then
+			return nil
+		end
+
+		return rootPart
+	end
+
+	local function findPlayerByQuery(query)
+		local normalizedQuery = string.lower(string.gsub(query or "", "^%s*(.-)%s*$", "%1"))
+		if normalizedQuery == "" then
+			return nil
+		end
+
+		local exactMatch
+		local partialMatch
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= localPlayer then
+				local nameLower = string.lower(player.Name)
+				local displayLower = string.lower(player.DisplayName)
+				if nameLower == normalizedQuery or displayLower == normalizedQuery then
+					exactMatch = player
+					break
+				end
+
+				if string.find(nameLower, normalizedQuery, 1, true) or string.find(displayLower, normalizedQuery, 1, true) then
+					partialMatch = partialMatch or player
+				end
+			end
+		end
+
+		return exactMatch or partialMatch
+	end
+
+	local function teleportToPlayer(targetPlayer)
+		if not targetPlayer or targetPlayer == localPlayer then
+			setStatus("Player target tidak valid.", true)
+			return false
+		end
+
+		local targetRootPart = getPlayerRootPart(targetPlayer)
+		if not targetRootPart then
+			setStatus("Player target belum siap atau sudah mati.", true)
+			return false
+		end
+
+		local targetPosition = targetRootPart.Position + Vector3.new(0, 3, 0)
+		local teleported = teleportToPosition(targetPosition)
+		if teleported then
+			playerTargetBox.Text = targetPlayer.Name
+			setStatus(string.format("Teleport ke %s berhasil.", targetPlayer.DisplayName), false)
+		end
+		return teleported
+	end
+
+	local function teleportToFriend()
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= localPlayer and localPlayer:IsFriendsWith(player.UserId) then
+				if teleportToPlayer(player) then
+					return true
+				end
+			end
+		end
+
+		setStatus("Tidak ada teman online yang bisa diteleport.", true)
+		return false
 	end
 
 	local function performAntiAfkMovement()
@@ -1531,6 +1625,20 @@ local function bootstrap()
 		end
 
 		teleportToPosition(Vector3.new(x, y, z))
+	end)
+
+	connect(teleportPlayerButton.MouseButton1Click, function()
+		local targetPlayer = findPlayerByQuery(playerTargetBox.Text)
+		if not targetPlayer then
+			setStatus("Player tidak ditemukan. Coba nama atau display name.", true)
+			return
+		end
+
+		teleportToPlayer(targetPlayer)
+	end)
+
+	connect(teleportFriendButton.MouseButton1Click, function()
+		teleportToFriend()
 	end)
 
 	local function addSavedCoordinate(position)
