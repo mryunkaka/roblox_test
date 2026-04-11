@@ -9,6 +9,15 @@ if not localPlayer then
 	return
 end
 
+local function resetGlobalExecutionState()
+	_G.NightsForestInputLog = {
+		lastAutoClickAt = 0,
+		lastAutoClickSource = nil,
+		lastMessage = "Belum ada log klik.",
+	}
+	_G.NightsForestScriptHistory = nil
+end
+
 local function bootstrap()
 	local coreGuiContainer = nil
 	pcall(function()
@@ -56,6 +65,9 @@ local function bootstrap()
 	local originCoordinate = nil
 	local characterPartsCache = {}
 	local raycastParams = RaycastParams.new()
+	local dragging = false
+	local dragStart = nil
+	local panelStart = nil
 	local probeState = {
 		expiresAt = 0,
 		lockHeight = nil,
@@ -98,11 +110,7 @@ local function bootstrap()
 		forwardRunSpeed = defaultForwardRunSpeed,
 		lastGroundSpeed = nil,
 	}
-	_G.NightsForestInputLog = _G.NightsForestInputLog or {
-		lastAutoClickAt = 0,
-		lastAutoClickSource = nil,
-		lastMessage = "Belum ada log klik.",
-	}
+	resetGlobalExecutionState()
 
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.IgnoreWater = false
@@ -1456,41 +1464,18 @@ local function bootstrap()
 		)
 	end
 
-	local function resetUtility()
+	local function clearExecutionState()
+		resetGlobalExecutionState()
 		savedCoordinates = {}
-		refreshSavedCoordinateRows()
-
+		originCoordinate = nil
+		table.clear(characterPartsCache)
+		invalidateGroundProbe()
 		for key in pairs(movementState) do
 			movementState[key] = 0
 		end
-
-		xBox.Text = ""
-		yBox.Text = ""
-		zBox.Text = ""
-		flyState.speed = defaultFlySpeed
-		flySpeedBox.Text = tostring(defaultFlySpeed)
-		flyState.playerSafeRadius = defaultPlayerSafeRadius
-		playerRadiusBox.Text = tostring(defaultPlayerSafeRadius)
-		flyState.lockHeightOffset = defaultLockHeightOffset
-		lockHeightBox.Text = tostring(defaultLockHeightOffset)
-		utilityState.baseWalkSpeed = defaultWalkSpeed
-		utilityState.forwardRunSpeed = defaultForwardRunSpeed
-		utilityState.lastGroundSpeed = nil
-		walkSpeedBox.Text = tostring(defaultWalkSpeed)
-		runSpeedBox.Text = tostring(defaultForwardRunSpeed)
-		stopAutoClick()
-		utilityState.antiAfkEnabled = true
-		autoClickBox.Text = tostring(utilityState.autoClickInterval)
-		setFlyEnabled(false)
-		local humanoid = getHumanoid()
-		if humanoid then
-			humanoid.WalkSpeed = utilityState.baseWalkSpeed
-			utilityState.lastGroundSpeed = humanoid.WalkSpeed
-		end
-		setNoclipEnabled(false)
-		updateAntiAfkButton()
-		updateFlyInfoLabel()
-		setStatus("Execute di-reset.", false)
+		dragging = false
+		dragStart = nil
+		panelStart = nil
 	end
 
 	local function destroyUtility()
@@ -1501,6 +1486,7 @@ local function bootstrap()
 		destroyed = true
 		stopAutoClick()
 		setFlyEnabled(false)
+		clearExecutionState()
 		local humanoid = getHumanoid()
 		if humanoid then
 			humanoid.WalkSpeed = getBaseWalkSpeed()
@@ -1513,9 +1499,12 @@ local function bootstrap()
 		screenGui:Destroy()
 	end
 
-	local dragging = false
-	local dragStart
-	local panelStart
+	local function restartUtility()
+		destroyUtility()
+		task.defer(function()
+			bootstrap()
+		end)
+	end
 
 	connect(titleBar.InputBegan, function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
@@ -1732,7 +1721,7 @@ local function bootstrap()
 	end)
 
 	connect(restartButton.MouseButton1Click, function()
-		resetUtility()
+		restartUtility()
 	end)
 
 	connect(closeExecuteButton.MouseButton1Click, function()
