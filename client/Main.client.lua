@@ -34,6 +34,8 @@ local function bootstrap()
 	local playerControls = nil
 	local attackRemote = nil
 	local defaultFlySpeed = 64
+	local defaultWalkSpeed = 16
+	local defaultForwardRunSpeed = 28
 	local altitudeAdjustSpeed = 42
 	local altitudeResponse = 7
 	local maxVerticalSpeed = 56
@@ -85,6 +87,9 @@ local function bootstrap()
 		autoClickInterval = 9.5 * 60,
 		autoClickToken = 0,
 		nextAutoClickAt = 0,
+		baseWalkSpeed = defaultWalkSpeed,
+		forwardRunSpeed = defaultForwardRunSpeed,
+		lastGroundSpeed = nil,
 	}
 	_G.NightsForestInputLog = _G.NightsForestInputLog or {
 		lastAutoClickAt = 0,
@@ -630,7 +635,7 @@ local function bootstrap()
 	savedList.SortOrder = Enum.SortOrder.LayoutOrder
 	savedList.Parent = savedContainer
 
-	local utilitySection = createSection(186)
+	local utilitySection = createSection(272)
 	utilitySection.LayoutOrder = 4
 	utilitySection.Parent = content
 
@@ -688,9 +693,45 @@ local function bootstrap()
 	autoClickBox.TextSize = 13
 	autoClickBox.Parent = utilitySection
 
+	local walkSpeedLabel = Instance.new("TextLabel")
+	walkSpeedLabel.Size = UDim2.new(0, 120, 0, 18)
+	walkSpeedLabel.Position = UDim2.fromOffset(12, 142)
+	walkSpeedLabel.BackgroundTransparency = 1
+	walkSpeedLabel.Text = "Walk Speed"
+	walkSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+	walkSpeedLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	walkSpeedLabel.TextSize = 13
+	walkSpeedLabel.Font = Enum.Font.GothamMedium
+	walkSpeedLabel.Parent = utilitySection
+
+	local walkSpeedBox = createInputBox("WalkSpeedBox", "16")
+	walkSpeedBox.Size = UDim2.fromOffset(70, 28)
+	walkSpeedBox.Position = UDim2.fromOffset(114, 138)
+	walkSpeedBox.Text = tostring(defaultWalkSpeed)
+	walkSpeedBox.TextSize = 13
+	walkSpeedBox.Parent = utilitySection
+
+	local runSpeedLabel = Instance.new("TextLabel")
+	runSpeedLabel.Size = UDim2.new(0, 120, 0, 18)
+	runSpeedLabel.Position = UDim2.fromOffset(12, 176)
+	runSpeedLabel.BackgroundTransparency = 1
+	runSpeedLabel.Text = "Forward Run"
+	runSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+	runSpeedLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	runSpeedLabel.TextSize = 13
+	runSpeedLabel.Font = Enum.Font.GothamMedium
+	runSpeedLabel.Parent = utilitySection
+
+	local runSpeedBox = createInputBox("ForwardRunSpeedBox", "28")
+	runSpeedBox.Size = UDim2.fromOffset(70, 28)
+	runSpeedBox.Position = UDim2.fromOffset(114, 172)
+	runSpeedBox.Text = tostring(defaultForwardRunSpeed)
+	runSpeedBox.TextSize = 13
+	runSpeedBox.Parent = utilitySection
+
 	local autoClickCooldownLabel = Instance.new("TextLabel")
 	autoClickCooldownLabel.Size = UDim2.new(1, -24, 0, 18)
-	autoClickCooldownLabel.Position = UDim2.fromOffset(12, 138)
+	autoClickCooldownLabel.Position = UDim2.fromOffset(12, 210)
 	autoClickCooldownLabel.BackgroundTransparency = 1
 	autoClickCooldownLabel.Text = "Cooldown: siap"
 	autoClickCooldownLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -701,7 +742,7 @@ local function bootstrap()
 
 	local inputLogLabel = Instance.new("TextLabel")
 	inputLogLabel.Size = UDim2.new(1, -24, 0, 28)
-	inputLogLabel.Position = UDim2.fromOffset(12, 158)
+	inputLogLabel.Position = UDim2.fromOffset(12, 230)
 	inputLogLabel.BackgroundTransparency = 1
 	inputLogLabel.Text = "Log klik: belum ada."
 	inputLogLabel.TextWrapped = true
@@ -811,6 +852,53 @@ local function bootstrap()
 		local inputLog = _G.NightsForestInputLog
 		local message = inputLog and inputLog.lastMessage or "Belum ada log klik."
 		inputLogLabel.Text = "Log klik: " .. tostring(message)
+	end
+
+	local function getBaseWalkSpeed()
+		local parsed = sanitizeNumber(walkSpeedBox.Text)
+		if parsed and parsed > 0 then
+			utilityState.baseWalkSpeed = parsed
+			return parsed
+		end
+
+		walkSpeedBox.Text = string.format("%.0f", utilityState.baseWalkSpeed)
+		return utilityState.baseWalkSpeed
+	end
+
+	local function getForwardRunSpeed()
+		local parsed = sanitizeNumber(runSpeedBox.Text)
+		if parsed and parsed > 0 then
+			utilityState.forwardRunSpeed = math.max(parsed, getBaseWalkSpeed())
+			runSpeedBox.Text = string.format("%.0f", utilityState.forwardRunSpeed)
+			return utilityState.forwardRunSpeed
+		end
+
+		runSpeedBox.Text = string.format("%.0f", utilityState.forwardRunSpeed)
+		return utilityState.forwardRunSpeed
+	end
+
+	local function applyGroundMovementSpeed(moveInput)
+		local humanoid = getHumanoid()
+		if not humanoid then
+			return
+		end
+
+		if flyState.enabled then
+			utilityState.lastGroundSpeed = nil
+			return
+		end
+
+		local baseSpeed = getBaseWalkSpeed()
+		local runSpeed = getForwardRunSpeed()
+		local forwardAmount = math.clamp(-moveInput.Z, 0, 1)
+		local targetSpeed = baseSpeed + ((runSpeed - baseSpeed) * forwardAmount)
+
+		if utilityState.lastGroundSpeed and math.abs(utilityState.lastGroundSpeed - targetSpeed) < 0.05 then
+			return
+		end
+
+		humanoid.WalkSpeed = targetSpeed
+		utilityState.lastGroundSpeed = targetSpeed
 	end
 
 	local function updateFlyButton()
@@ -1159,10 +1247,20 @@ local function bootstrap()
 		zBox.Text = ""
 		flyState.speed = defaultFlySpeed
 		flySpeedBox.Text = tostring(defaultFlySpeed)
+		utilityState.baseWalkSpeed = defaultWalkSpeed
+		utilityState.forwardRunSpeed = defaultForwardRunSpeed
+		utilityState.lastGroundSpeed = nil
+		walkSpeedBox.Text = tostring(defaultWalkSpeed)
+		runSpeedBox.Text = tostring(defaultForwardRunSpeed)
 		stopAutoClick()
 		utilityState.antiAfkEnabled = true
 		autoClickBox.Text = tostring(utilityState.autoClickInterval)
 		setFlyEnabled(false)
+		local humanoid = getHumanoid()
+		if humanoid then
+			humanoid.WalkSpeed = utilityState.baseWalkSpeed
+			utilityState.lastGroundSpeed = humanoid.WalkSpeed
+		end
 		setNoclipEnabled(false)
 		updateAntiAfkButton()
 		setStatus("Execute di-reset.", false)
@@ -1176,6 +1274,10 @@ local function bootstrap()
 		destroyed = true
 		stopAutoClick()
 		setFlyEnabled(false)
+		local humanoid = getHumanoid()
+		if humanoid then
+			humanoid.WalkSpeed = getBaseWalkSpeed()
+		end
 
 		for _, connection in ipairs(connections) do
 			connection:Disconnect()
@@ -1344,6 +1446,17 @@ local function bootstrap()
 		getFlySpeed()
 	end)
 
+	connect(walkSpeedBox.FocusLost, function()
+		getBaseWalkSpeed()
+		getForwardRunSpeed()
+		utilityState.lastGroundSpeed = nil
+	end)
+
+	connect(runSpeedBox.FocusLost, function()
+		getForwardRunSpeed()
+		utilityState.lastGroundSpeed = nil
+	end)
+
 	connect(lockHeightBox.FocusLost, function()
 		getActiveLockHeightOffset()
 	end)
@@ -1415,6 +1528,9 @@ local function bootstrap()
 
 	connect(localPlayer.CharacterAdded, function(character)
 		character:WaitForChild("HumanoidRootPart")
+		local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid")
+		humanoid.WalkSpeed = getBaseWalkSpeed()
+		utilityState.lastGroundSpeed = humanoid.WalkSpeed
 		rebuildCharacterPartsCache(character)
 		applyNoclipState()
 		invalidateGroundProbe()
@@ -1483,6 +1599,9 @@ local function bootstrap()
 	connect(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
 
 	connect(RunService.RenderStepped, function(deltaTime)
+		local moveInput = getPlayerMoveVector()
+		applyGroundMovementSpeed(moveInput)
+
 		local now = os.clock()
 		if now >= loopState.nextHudRefreshAt then
 			loopState.nextHudRefreshAt = now + hudRefreshInterval
@@ -1522,7 +1641,6 @@ local function bootstrap()
 					flyState.targetHeight += verticalInput * altitudeAdjustSpeed * deltaTime
 				end
 
-				local moveInput = getPlayerMoveVector()
 				local horizontalMoveVector
 				if moveInput.Magnitude > analogDeadzone then
 					local humanoidMove = humanoid.MoveDirection
@@ -1562,6 +1680,11 @@ local function bootstrap()
 
 	rebuildCharacterPartsCache(localPlayer.Character)
 	applyNoclipState()
+	local currentHumanoid = getHumanoid()
+	if currentHumanoid then
+		currentHumanoid.WalkSpeed = getBaseWalkSpeed()
+		utilityState.lastGroundSpeed = currentHumanoid.WalkSpeed
+	end
 	task.defer(function()
 		if not destroyed then
 			refreshSavedCoordinateRows()
