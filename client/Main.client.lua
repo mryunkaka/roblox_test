@@ -1801,6 +1801,12 @@ local function bootstrap()
 					flyState.velocity = Vector3.new(0, flyState.velocity.Y, 0)
 				end
 				rootPart.AssemblyLinearVelocity = flyState.velocity
+
+				local cameraLook = camera.CFrame.LookVector
+				local flatLook = Vector3.new(cameraLook.X, 0, cameraLook.Z)
+				if flatLook.Magnitude > 0.05 then
+					rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + flatLook.Unit, Vector3.yAxis)
+				end
 			end
 		end
 	end)
