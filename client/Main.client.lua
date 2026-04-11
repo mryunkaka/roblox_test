@@ -36,17 +36,19 @@ local function bootstrap()
 	local defaultFlySpeed = 64
 	local defaultWalkSpeed = 16
 	local defaultForwardRunSpeed = 28
+	local defaultPlayerSafeRadius = 22
 	local altitudeAdjustSpeed = 42
-	local altitudeResponse = 7
-	local maxVerticalSpeed = 56
+	local altitudeResponse = 5.5
+	local maxVerticalSpeed = 42
 	local defaultLockHeightOffset = 25
 	local terrainProbeDistance = 512
 	local analogDeadzone = 0.12
 	local groundProbeInterval = 0.08
 	local noclipRefreshInterval = 0.12
 	local hudRefreshInterval = 0.1
+	local playerDistanceProbeInterval = 0.2
 	local panelWidth = isTouchDevice and 336 or 320
-	local panelHeight = isTouchDevice and 356 or 404
+	local panelHeight = isTouchDevice and 392 or 440
 
 	local connections = {}
 	local destroyed = false
@@ -62,6 +64,7 @@ local function bootstrap()
 	local loopState = {
 		nextHudRefreshAt = 0,
 		nextNoclipRefreshAt = 0,
+		nextPlayerDistanceProbeAt = 0,
 	}
 	local movementState = {
 		forward = 0,
@@ -80,6 +83,10 @@ local function bootstrap()
 		noclipEnabled = false,
 		speed = defaultFlySpeed,
 		lockHeightOffset = defaultLockHeightOffset,
+		playerSafeRadius = defaultPlayerSafeRadius,
+		nearbyPlayerDistance = math.huge,
+		suppressedByNearbyPlayer = false,
+		lastVerticalInput = 0,
 	}
 	local utilityState = {
 		antiAfkEnabled = true,
@@ -121,7 +128,7 @@ local function bootstrap()
 	end
 
 	local function getCharacter()
-		return localPlayer.Character or localPlayer.CharacterAdded:Wait()
+		return localPlayer.Character
 	end
 
 	local function getRootPart()
@@ -147,12 +154,8 @@ local function bootstrap()
 		end
 	end
 
-	local function getCharacterParts()
-		return characterPartsCache
-	end
-
 	local function applyNoclipState()
-		local canCollide = not flyState.noclipEnabled
+		local canCollide = not (flyState.noclipEnabled and flyState.enabled and not flyState.suppressedByNearbyPlayer)
 		for _, part in ipairs(characterPartsCache) do
 			if part.Parent and part.Name ~= "HumanoidRootPart" then
 				part.CanCollide = canCollide
@@ -430,7 +433,7 @@ local function bootstrap()
 		end)
 	end
 
-	local flySection = createSection(isTouchDevice and 160 or 150)
+	local flySection = createSection(isTouchDevice and 238 or 226)
 	flySection.LayoutOrder = 1
 	flySection.Parent = content
 
@@ -492,7 +495,7 @@ local function bootstrap()
 	lockHeightLabel.Size = UDim2.new(0, 100, 0, 18)
 	lockHeightLabel.Position = UDim2.fromOffset(12, 120)
 	lockHeightLabel.BackgroundTransparency = 1
-	lockHeightLabel.Text = "Lock Height"
+	lockHeightLabel.Text = "Height Offset"
 	lockHeightLabel.TextXAlignment = Enum.TextXAlignment.Left
 	lockHeightLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
 	lockHeightLabel.TextSize = 13
@@ -513,9 +516,27 @@ local function bootstrap()
 	lockHeightButton.Font = Enum.Font.GothamBold
 	lockHeightButton.Parent = flySection
 
+	local playerRadiusLabel = Instance.new("TextLabel")
+	playerRadiusLabel.Size = UDim2.new(0, 100, 0, 18)
+	playerRadiusLabel.Position = UDim2.fromOffset(12, 154)
+	playerRadiusLabel.BackgroundTransparency = 1
+	playerRadiusLabel.Text = "Player Radius"
+	playerRadiusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	playerRadiusLabel.TextColor3 = Color3.fromRGB(240, 244, 248)
+	playerRadiusLabel.TextSize = 13
+	playerRadiusLabel.Font = Enum.Font.GothamMedium
+	playerRadiusLabel.Parent = flySection
+
+	local playerRadiusBox = createInputBox("PlayerRadiusBox", "22")
+	playerRadiusBox.Size = UDim2.fromOffset(70, 28)
+	playerRadiusBox.Position = UDim2.fromOffset(114, 150)
+	playerRadiusBox.Text = tostring(defaultPlayerSafeRadius)
+	playerRadiusBox.TextSize = 13
+	playerRadiusBox.Parent = flySection
+
 	local diveBelowLabel = Instance.new("TextLabel")
 	diveBelowLabel.Size = UDim2.new(0, 100, 0, 18)
-	diveBelowLabel.Position = UDim2.fromOffset(12, 154)
+	diveBelowLabel.Position = UDim2.fromOffset(12, 188)
 	diveBelowLabel.BackgroundTransparency = 1
 	diveBelowLabel.Text = "Dive Below"
 	diveBelowLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -526,10 +547,21 @@ local function bootstrap()
 
 	local diveBelowButton = createActionButton("DiveBelowToggle", "OFF", Color3.fromRGB(120, 52, 52))
 	diveBelowButton.Size = UDim2.fromOffset(82, 28)
-	diveBelowButton.Position = UDim2.new(1, -94, 0, 150)
+	diveBelowButton.Position = UDim2.new(1, -94, 0, 184)
 	diveBelowButton.TextSize = 13
 	diveBelowButton.Font = Enum.Font.GothamBold
 	diveBelowButton.Parent = flySection
+
+	local flyInfoLabel = Instance.new("TextLabel")
+	flyInfoLabel.Size = UDim2.new(1, -24, 0, 18)
+	flyInfoLabel.Position = UDim2.fromOffset(12, 216)
+	flyInfoLabel.BackgroundTransparency = 1
+	flyInfoLabel.Text = "Status fly: normal"
+	flyInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+	flyInfoLabel.TextColor3 = Color3.fromRGB(172, 182, 196)
+	flyInfoLabel.TextSize = 12
+	flyInfoLabel.Font = Enum.Font.Gotham
+	flyInfoLabel.Parent = flySection
 
 	local teleportSection = createSection(148)
 	teleportSection.LayoutOrder = 2
@@ -854,27 +886,46 @@ local function bootstrap()
 		inputLogLabel.Text = "Log klik: " .. tostring(message)
 	end
 
-	local function getBaseWalkSpeed()
-		local parsed = sanitizeNumber(walkSpeedBox.Text)
-		if parsed and parsed > 0 then
-			utilityState.baseWalkSpeed = parsed
-			return parsed
+	local function updateFlyInfoLabel()
+		if not flyState.enabled then
+			flyInfoLabel.Text = "Status fly: mati"
+			return
 		end
 
-		walkSpeedBox.Text = string.format("%.0f", utilityState.baseWalkSpeed)
+		if flyState.suppressedByNearbyPlayer then
+			flyInfoLabel.Text = string.format("Status fly: normal, player %.1f stud", flyState.nearbyPlayerDistance)
+			return
+		end
+
+		flyInfoLabel.Text = string.format("Status fly: aktif, radius %.0f", flyState.playerSafeRadius)
+	end
+
+	local function getBaseWalkSpeed()
 		return utilityState.baseWalkSpeed
 	end
 
 	local function getForwardRunSpeed()
-		local parsed = sanitizeNumber(runSpeedBox.Text)
-		if parsed and parsed > 0 then
-			utilityState.forwardRunSpeed = math.max(parsed, getBaseWalkSpeed())
-			runSpeedBox.Text = string.format("%.0f", utilityState.forwardRunSpeed)
-			return utilityState.forwardRunSpeed
+		return utilityState.forwardRunSpeed
+	end
+
+	local function getPlayerSafeRadius()
+		return flyState.playerSafeRadius
+	end
+
+	local function applyHumanoidFlightState(humanoid, enabled)
+		if not humanoid then
+			return
 		end
 
-		runSpeedBox.Text = string.format("%.0f", utilityState.forwardRunSpeed)
-		return utilityState.forwardRunSpeed
+		humanoid.AutoRotate = not enabled
+		humanoid.PlatformStand = false
+		if enabled then
+			if humanoid:GetState() ~= Enum.HumanoidStateType.Physics then
+				humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+			end
+		elseif humanoid:GetState() == Enum.HumanoidStateType.Physics then
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
 	end
 
 	local function applyGroundMovementSpeed(moveInput)
@@ -883,7 +934,7 @@ local function bootstrap()
 			return
 		end
 
-		if flyState.enabled then
+		if flyState.enabled and not flyState.suppressedByNearbyPlayer then
 			utilityState.lastGroundSpeed = nil
 			return
 		end
@@ -904,6 +955,7 @@ local function bootstrap()
 	local function updateFlyButton()
 		setButtonState(flyButton, flyState.enabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
 		touchControls.Visible = isTouchDevice and flyState.enabled and not destroyed
+		updateFlyInfoLabel()
 	end
 
 	local function updateLockHeightButton()
@@ -914,6 +966,7 @@ local function bootstrap()
 		setButtonState(diveBelowButton, flyState.diveBelowEnabled, Color3.fromRGB(44, 150, 97), Color3.fromRGB(120, 52, 52))
 		touchDive.Text = flyState.diveBelowEnabled and "ON" or "D"
 		touchDive.BackgroundColor3 = flyState.diveBelowEnabled and Color3.fromRGB(44, 150, 97) or Color3.fromRGB(18, 24, 34)
+		updateFlyInfoLabel()
 	end
 
 	local function updateNoclipButton()
@@ -1097,25 +1150,10 @@ local function bootstrap()
 	end
 
 	local function getActiveLockHeightOffset()
-		local parsed = sanitizeNumber(lockHeightBox.Text)
-		if parsed and parsed > 0 then
-			flyState.lockHeightOffset = parsed
-			invalidateGroundProbe()
-			return parsed
-		end
-
-		lockHeightBox.Text = string.format("%.0f", flyState.lockHeightOffset)
 		return flyState.lockHeightOffset
 	end
 
 	local function getFlySpeed()
-		local parsed = sanitizeNumber(flySpeedBox.Text)
-		if parsed and parsed > 0 then
-			flyState.speed = parsed
-			return parsed
-		end
-
-		flySpeedBox.Text = string.format("%.0f", flyState.speed)
 		return flyState.speed
 	end
 
@@ -1128,6 +1166,71 @@ local function bootstrap()
 
 		autoClickBox.Text = tostring(utilityState.autoClickInterval)
 		return utilityState.autoClickInterval
+	end
+
+	local function commitNumericBox(box, currentValue, minValue, integerOnly)
+		local parsed = sanitizeNumber(box.Text)
+		if parsed and parsed >= minValue then
+			currentValue = integerOnly and math.floor(parsed + 0.5) or parsed
+			box.Text = integerOnly and string.format("%.0f", currentValue) or string.format("%.2f", currentValue)
+			return currentValue
+		end
+
+		box.Text = integerOnly and string.format("%.0f", currentValue) or string.format("%.2f", currentValue)
+		return currentValue
+	end
+
+	local function getNearestOtherPlayerDistance(rootPart)
+		local nearestDistance = math.huge
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= localPlayer then
+				local character = player.Character
+				local otherRoot = character and character:FindFirstChild("HumanoidRootPart")
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if otherRoot and humanoid and humanoid.Health > 0 then
+					local distance = (otherRoot.Position - rootPart.Position).Magnitude
+					if distance < nearestDistance then
+						nearestDistance = distance
+					end
+				end
+			end
+		end
+
+		return nearestDistance
+	end
+
+	local function updateFlySuppression(rootPart)
+		local now = os.clock()
+		if now >= loopState.nextPlayerDistanceProbeAt then
+			loopState.nextPlayerDistanceProbeAt = now + playerDistanceProbeInterval
+			flyState.nearbyPlayerDistance = getNearestOtherPlayerDistance(rootPart)
+		end
+
+		local shouldSuppress = flyState.enabled and flyState.nearbyPlayerDistance <= getPlayerSafeRadius()
+		if shouldSuppress == flyState.suppressedByNearbyPlayer then
+			return
+		end
+
+		flyState.suppressedByNearbyPlayer = shouldSuppress
+
+		local humanoid = getHumanoid()
+		local currentRootPart = rootPart or getRootPart()
+		applyHumanoidFlightState(humanoid, flyState.enabled and not shouldSuppress)
+		if currentRootPart then
+			currentRootPart.AssemblyLinearVelocity = Vector3.zero
+			currentRootPart.AssemblyAngularVelocity = Vector3.zero
+			if not shouldSuppress then
+				flyState.targetHeight = currentRootPart.Position.Y
+			end
+		end
+
+		applyNoclipState()
+		setStatus(
+			shouldSuppress and string.format("Fly kembali normal karena player dekat (%.1f stud).", flyState.nearbyPlayerDistance)
+				or "Player lain sudah jauh, fly kembali aktif.",
+			false
+		)
+		updateFlyInfoLabel()
 	end
 
 	local function performAutoClick()
@@ -1194,22 +1297,24 @@ local function bootstrap()
 	local function setFlyEnabled(enabled)
 		flyState.enabled = enabled
 		flyState.velocity = Vector3.zero
-		getFlySpeed()
 		invalidateGroundProbe()
+		loopState.nextPlayerDistanceProbeAt = 0
 
 		local humanoid = getHumanoid()
 		local rootPart = getRootPart()
-		if humanoid then
-			humanoid.PlatformStand = enabled
-			humanoid.AutoRotate = not enabled
-		end
+		applyHumanoidFlightState(humanoid, enabled and not flyState.suppressedByNearbyPlayer)
 
 		if enabled and rootPart then
+			flyState.suppressedByNearbyPlayer = false
+			flyState.nearbyPlayerDistance = math.huge
 			flyState.targetHeight = rootPart.Position.Y
+			flyState.lastVerticalInput = 0
 		else
 			flyState.targetHeight = nil
 			flyState.lockHeightEnabled = false
 			flyState.diveBelowEnabled = false
+			flyState.suppressedByNearbyPlayer = false
+			flyState.nearbyPlayerDistance = math.huge
 		end
 
 		if not enabled and rootPart then
@@ -1220,6 +1325,7 @@ local function bootstrap()
 		updateFlyButton()
 		updateLockHeightButton()
 		updateDiveBelowButton()
+		updateFlyInfoLabel()
 	end
 
 	local function setNoclipEnabled(enabled)
@@ -1227,11 +1333,33 @@ local function bootstrap()
 		applyNoclipState()
 		loopState.nextNoclipRefreshAt = 0
 		updateNoclipButton()
+		updateFlyInfoLabel()
 	end
 
 	local function getGroundLockHeight(rootPart, character)
 		getActiveLockHeightOffset()
 		return refreshGroundProbe(rootPart, character)
+	end
+
+	local function toggleDiveBelow()
+		if not flyState.enabled then
+			setStatus("Aktifkan fly dulu untuk memakai dive below.", true)
+			return
+		end
+
+		flyState.diveBelowEnabled = not flyState.diveBelowEnabled
+		if flyState.diveBelowEnabled then
+			local character = localPlayer.Character
+			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+			local diveHeight = rootPart and select(2, getGroundLockHeight(rootPart, character))
+			flyState.targetHeight = diveHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
+		end
+
+		updateDiveBelowButton()
+		setStatus(
+			flyState.diveBelowEnabled and string.format("Dive below aktif di %.1f stud di bawah permukaan.", flyState.lockHeightOffset) or "Dive below dimatikan.",
+			false
+		)
 	end
 
 	local function resetUtility()
@@ -1247,6 +1375,10 @@ local function bootstrap()
 		zBox.Text = ""
 		flyState.speed = defaultFlySpeed
 		flySpeedBox.Text = tostring(defaultFlySpeed)
+		flyState.playerSafeRadius = defaultPlayerSafeRadius
+		playerRadiusBox.Text = tostring(defaultPlayerSafeRadius)
+		flyState.lockHeightOffset = defaultLockHeightOffset
+		lockHeightBox.Text = tostring(defaultLockHeightOffset)
 		utilityState.baseWalkSpeed = defaultWalkSpeed
 		utilityState.forwardRunSpeed = defaultForwardRunSpeed
 		utilityState.lastGroundSpeed = nil
@@ -1263,6 +1395,7 @@ local function bootstrap()
 		end
 		setNoclipEnabled(false)
 		updateAntiAfkButton()
+		updateFlyInfoLabel()
 		setStatus("Execute di-reset.", false)
 	end
 
@@ -1336,6 +1469,8 @@ local function bootstrap()
 	end)
 
 	connect(flyButton.MouseButton1Click, function()
+		flyState.speed = commitNumericBox(flySpeedBox, flyState.speed, 1, true)
+		flyState.playerSafeRadius = commitNumericBox(playerRadiusBox, flyState.playerSafeRadius, 1, true)
 		setFlyEnabled(not flyState.enabled)
 		setStatus(flyState.enabled and "Fly aktif." or "Fly dimatikan.", false)
 	end)
@@ -1351,7 +1486,11 @@ local function bootstrap()
 			return
 		end
 
-		getActiveLockHeightOffset()
+		local previousOffset = flyState.lockHeightOffset
+		flyState.lockHeightOffset = commitNumericBox(lockHeightBox, flyState.lockHeightOffset, 1, true)
+		if previousOffset ~= flyState.lockHeightOffset then
+			invalidateGroundProbe()
+		end
 		flyState.lockHeightEnabled = not flyState.lockHeightEnabled
 		if flyState.lockHeightEnabled then
 			local character = localPlayer.Character
@@ -1368,25 +1507,7 @@ local function bootstrap()
 	end)
 
 	connect(diveBelowButton.MouseButton1Click, function()
-		if not flyState.enabled then
-			setStatus("Aktifkan fly dulu untuk memakai dive below.", true)
-			return
-		end
-
-		getActiveLockHeightOffset()
-		flyState.diveBelowEnabled = not flyState.diveBelowEnabled
-		if flyState.diveBelowEnabled then
-			local character = localPlayer.Character
-			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-			local diveHeight = rootPart and select(2, getGroundLockHeight(rootPart, character))
-			flyState.targetHeight = diveHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
-		end
-
-		updateDiveBelowButton()
-		setStatus(
-			flyState.diveBelowEnabled and string.format("Dive below aktif di %.1f stud di bawah permukaan.", flyState.lockHeightOffset) or "Dive below dimatikan.",
-			false
-		)
+		toggleDiveBelow()
 	end)
 
 	connect(getCoordinateButton.MouseButton1Click, function()
@@ -1443,22 +1564,37 @@ local function bootstrap()
 	end)
 
 	connect(flySpeedBox.FocusLost, function()
-		getFlySpeed()
+		flyState.speed = commitNumericBox(flySpeedBox, flyState.speed, 1, true)
 	end)
 
 	connect(walkSpeedBox.FocusLost, function()
-		getBaseWalkSpeed()
-		getForwardRunSpeed()
+		utilityState.baseWalkSpeed = commitNumericBox(walkSpeedBox, utilityState.baseWalkSpeed, 1, true)
+		utilityState.forwardRunSpeed = math.max(utilityState.forwardRunSpeed, utilityState.baseWalkSpeed)
+		runSpeedBox.Text = string.format("%.0f", utilityState.forwardRunSpeed)
 		utilityState.lastGroundSpeed = nil
 	end)
 
 	connect(runSpeedBox.FocusLost, function()
-		getForwardRunSpeed()
+		utilityState.forwardRunSpeed = math.max(
+			utilityState.baseWalkSpeed,
+			commitNumericBox(runSpeedBox, utilityState.forwardRunSpeed, 1, true)
+		)
+		runSpeedBox.Text = string.format("%.0f", utilityState.forwardRunSpeed)
 		utilityState.lastGroundSpeed = nil
 	end)
 
 	connect(lockHeightBox.FocusLost, function()
-		getActiveLockHeightOffset()
+		local previousOffset = flyState.lockHeightOffset
+		flyState.lockHeightOffset = commitNumericBox(lockHeightBox, flyState.lockHeightOffset, 1, true)
+		if previousOffset ~= flyState.lockHeightOffset then
+			invalidateGroundProbe()
+		end
+	end)
+
+	connect(playerRadiusBox.FocusLost, function()
+		flyState.playerSafeRadius = commitNumericBox(playerRadiusBox, flyState.playerSafeRadius, 1, true)
+		loopState.nextPlayerDistanceProbeAt = 0
+		updateFlyInfoLabel()
 	end)
 
 	connect(autoClickBox.FocusLost, function()
@@ -1530,10 +1666,12 @@ local function bootstrap()
 		character:WaitForChild("HumanoidRootPart")
 		local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid")
 		humanoid.WalkSpeed = getBaseWalkSpeed()
+		applyHumanoidFlightState(humanoid, flyState.enabled and not flyState.suppressedByNearbyPlayer)
 		utilityState.lastGroundSpeed = humanoid.WalkSpeed
 		rebuildCharacterPartsCache(character)
 		applyNoclipState()
 		invalidateGroundProbe()
+		originCoordinate = nil
 		captureOriginCoordinate()
 		refreshSavedCoordinateRows()
 
@@ -1547,25 +1685,7 @@ local function bootstrap()
 	end)
 
 	connect(touchDive.MouseButton1Click, function()
-		if not flyState.enabled then
-			setStatus("Aktifkan fly dulu untuk memakai dive below.", true)
-			return
-		end
-
-		getActiveLockHeightOffset()
-		flyState.diveBelowEnabled = not flyState.diveBelowEnabled
-		if flyState.diveBelowEnabled then
-			local character = localPlayer.Character
-			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-			local diveHeight = rootPart and select(2, getGroundLockHeight(rootPart, character))
-			flyState.targetHeight = diveHeight or (rootPart and rootPart.Position.Y) or flyState.targetHeight
-		end
-
-		updateDiveBelowButton()
-		setStatus(
-			flyState.diveBelowEnabled and string.format("Dive below aktif di %.1f stud di bawah permukaan.", flyState.lockHeightOffset) or "Dive below dimatikan.",
-			false
-		)
+		toggleDiveBelow()
 	end)
 
 	connect(UserInputService.InputBegan, function(input, processed)
@@ -1598,7 +1718,7 @@ local function bootstrap()
 	connect(savedList:GetPropertyChangedSignal("AbsoluteContentSize"), updateSavedSectionHeight)
 	connect(listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
 
-	connect(RunService.RenderStepped, function(deltaTime)
+	connect(RunService.Heartbeat, function(deltaTime)
 		local moveInput = getPlayerMoveVector()
 		applyGroundMovementSpeed(moveInput)
 
@@ -1622,11 +1742,21 @@ local function bootstrap()
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			local camera = workspace.CurrentCamera
 			if rootPart and humanoid and camera then
-				humanoid.PlatformStand = true
-				humanoid.AutoRotate = false
+				updateFlySuppression(rootPart)
+				if flyState.suppressedByNearbyPlayer then
+					return
+				end
+
+				applyHumanoidFlightState(humanoid, true)
 				flyState.targetHeight = flyState.targetHeight or rootPart.Position.Y
 
 				local verticalInput = movementState.up - movementState.down
+				if verticalInput == 0 and flyState.lastVerticalInput ~= 0 then
+					flyState.targetHeight = rootPart.Position.Y
+					flyState.velocity = Vector3.new(flyState.velocity.X, 0, flyState.velocity.Z)
+				end
+				flyState.lastVerticalInput = verticalInput
+
 				if flyState.diveBelowEnabled then
 					local _, diveHeight = getGroundLockHeight(rootPart, character)
 					if diveHeight then
@@ -1660,6 +1790,9 @@ local function bootstrap()
 
 				local altitudeError = flyState.targetHeight - rootPart.Position.Y
 				local verticalVelocity = math.clamp(altitudeError * altitudeResponse, -maxVerticalSpeed, maxVerticalSpeed)
+				if math.abs(altitudeError) < 0.35 and verticalInput == 0 and not flyState.lockHeightEnabled and not flyState.diveBelowEnabled then
+					verticalVelocity = 0
+				end
 				local targetVelocity = horizontalMoveVector * flyState.speed + Vector3.yAxis * verticalVelocity
 				local blendAlpha = math.clamp(deltaTime * (horizontalMoveVector == Vector3.zero and 24 or 14), 0, 1)
 				flyState.velocity = flyState.velocity:Lerp(targetVelocity, blendAlpha)
@@ -1668,12 +1801,6 @@ local function bootstrap()
 					flyState.velocity = Vector3.new(0, flyState.velocity.Y, 0)
 				end
 				rootPart.AssemblyLinearVelocity = flyState.velocity
-
-				local lookVector = camera.CFrame.LookVector
-				local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z)
-				if flatLook.Magnitude > 0 then
-					rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook.Unit)
-				end
 			end
 		end
 	end)

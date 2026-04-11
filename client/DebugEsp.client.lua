@@ -1,7 +1,7 @@
 local CollectionService = game:GetService("CollectionService")
-local RunService = game:GetService("RunService")
-
 local tracked = {}
+local trackedConnections = {}
+local detachBillboard
 
 local function attachBillboard(instance)
     if tracked[instance] or not instance:IsA("Model") then
@@ -31,13 +31,24 @@ local function attachBillboard(instance)
 
     billboard.Parent = adornee
     tracked[instance] = billboard
+    trackedConnections[instance] = instance.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            detachBillboard(instance)
+        end
+    end)
 end
 
-local function detachBillboard(instance)
+detachBillboard = function(instance)
     local billboard = tracked[instance]
     if billboard then
         billboard:Destroy()
         tracked[instance] = nil
+    end
+
+    local connection = trackedConnections[instance]
+    if connection then
+        connection:Disconnect()
+        trackedConnections[instance] = nil
     end
 end
 
@@ -47,12 +58,3 @@ end
 
 CollectionService:GetInstanceAddedSignal("DebugVisible"):Connect(attachBillboard)
 CollectionService:GetInstanceRemovedSignal("DebugVisible"):Connect(detachBillboard)
-
-RunService.RenderStepped:Connect(function()
-    for instance, billboard in tracked do
-        if not instance.Parent then
-            billboard:Destroy()
-            tracked[instance] = nil
-        end
-    end
-end)
